@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PCIC R10 Monthly Accomplishment Report per Underwriter</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', 'Segoe UI', sans-serif; background: #f1f5f9; padding: 24px; color: #334155; }
+  .container { max-width: 100%; overflow-x: auto; background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 24px; }
+  .header { margin-bottom: 20px; border-bottom: 1px solid #e2e8f0; padding-bottom: 16px; }
+  .header-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  h2 { font-size: 20px; font-weight: 700; color: #1e293b; }
+  #currentMonthLabel { margin-top: 4px; color: #64748b; font-size: 15px; font-weight: 500; }
+  .countdown { font-size: 28px; font-weight: 700; color: #dc2626; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .toolbar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+  .toolbar button { padding: 7px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 500; transition: background 0.15s, transform 0.1s; font-family: inherit; white-space: nowrap; }
+  .toolbar button:active { transform: scale(0.97); }
+  .btn-add { background: #2563eb; color: #fff; }
+  .btn-add:hover { background: #1d4ed8; }
+  .btn-check { background: #d97706; color: #fff; }
+  .btn-check:hover { background: #b45309; }
+  .btn-reset { background: #dc2626; color: #fff; }
+  .btn-reset:hover { background: #b91c1c; }
+  .btn-undo { background: #7c3aed; color: #fff; }
+  .btn-undo:hover { background: #6d28d9; }
+  .btn-dashboard { background: #4f46e5; color: #fff; }
+  .btn-dashboard:hover { background: #4338ca; }
+  .btn-export-uw { background: #0d9488; color: #fff; }
+  .btn-export-uw:hover { background: #0f766e; }
+  .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-row-submit { padding: 4px 8px; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; font-family: inherit; background: #059669; color: #fff; transition: background 0.15s, transform 0.1s; white-space: nowrap; }
+  .btn-row-submit:hover { background: #047857; }
+  .btn-row-submit:active { transform: scale(0.95); }
+  .btn-row-submit.submitted { background: #e2e8f0; color: #94a3b8; cursor: default; }
+  .btn-row-submit.submitted:hover { background: #e2e8f0; }
+  .search-box { padding: 7px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px; font-family: inherit; min-width: 150px; outline: none; transition: border-color 0.15s; }
+  .search-box:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+  .filter-select { padding: 7px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 12px; font-family: inherit; outline: none; background: #fff; cursor: pointer; }
+  .filter-select:focus { border-color: #2563eb; }
+  .row-count { font-size: 11px; color: #94a3b8; margin-left: auto; white-space: nowrap; }
+  .pagination { display: flex; gap: 6px; align-items: center; margin-top: 12px; justify-content: center; flex-wrap: wrap; }
+  .pagination button { padding: 5px 12px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; cursor: pointer; font-size: 12px; font-family: inherit; transition: all 0.15s; }
+  .pagination button:hover { background: #f1f5f9; border-color: #cbd5e1; }
+  .pagination button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+  .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .pagination span { font-size: 12px; color: #64748b; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 2260px; }
+  th { background: #1e293b; color: #fff; padding: 10px 6px; border: none; text-align: center; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; position: sticky; top: 0; z-index: 2; white-space: nowrap; cursor: pointer; user-select: none; }
+  th:hover { background: #334155; }
+  th .sort-arrow { font-size: 10px; margin-left: 2px; opacity: 0.5; }
+  th .sort-arrow.active { opacity: 1; }
+  th .req { color: #f87171; margin-left: 2px; }
+  td { border-bottom: 1px solid #e2e8f0; padding: 4px; vertical-align: top; }
+  tr:hover td { background: #f8fafc; }
+  td input, td select, td textarea { width: 100%; border: none; outline: none; padding: 5px 6px; font-size: 12px; font-family: inherit; background: transparent; resize: vertical; min-height: 32px; border-radius: 4px; transition: background 0.15s; }
+  td input:focus, td select:focus, td textarea:focus { background: #eff6ff; }
+  td textarea[readonly] { background: #f1f5f9; color: #64748b; cursor: pointer; user-select: none; }
+  td textarea[readonly]:hover { background: #e2e8f0; }
+  td input.error, td select.error { background: #fef2f2; }
+  .row-num { text-align: center; color: #94a3b8; font-size: 11px; font-weight: 500; background: #f8fafc; }
+  .row-del { cursor: pointer; color: #dc2626; font-weight: bold; text-align: center; font-size: 14px; border-radius: 4px; transition: background 0.15s; }
+  .row-del:hover { background: #fef2f2; }
+  td.missing { background: #fef2f2 !important; }
+  td.missing input, td.missing textarea, td.missing select { background: #fef2f2 !important; }
+  td input[type="checkbox"] { width: 16px; height: 16px; min-height: 16px; cursor: pointer; margin: 0; accent-color: #2563eb; }
+  .summary { display: flex; gap: 20px; margin-top: 16px; padding: 12px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 12px; flex-wrap: wrap; }
+  .summary span { color: #64748b; }
+  .summary strong { color: #1e293b; font-weight: 600; }
+  .weekly-summary { margin-top: 20px; overflow-x: auto; }
+  .weekly-summary h3 { color: #1e293b; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  .weekly-summary table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 600px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+  .weekly-summary th { background: #1e293b; color: #fff; padding: 8px 12px; text-align: center; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; border: none; cursor: default; }
+  .weekly-summary td { padding: 8px 12px; border-bottom: 1px solid #e2e8f0; text-align: center; }
+  .weekly-summary td.left { text-align: left; }
+  .weekly-summary tr:hover td { background: #f8fafc; }
+  .ws-warn { color: #d97706; font-weight: 600; }
+  .ws-ok { color: #059669; font-weight: 600; }
+  .toast { position: fixed; bottom: 24px; right: 24px; background: #1e293b; color: #fff; padding: 12px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; opacity: 0; transition: opacity 0.2s; z-index: 999; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+  .toast.show { opacity: 1; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000; justify-content: center; align-items: center; }
+  .modal-overlay.show { display: flex; }
+  .modal-box { background: #fff; border-radius: 12px; max-width: 900px; width: 95%; max-height: 85vh; overflow-y: auto; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+  .modal-box h3 { color: #1e293b; margin-bottom: 16px; font-size: 16px; font-weight: 600; }
+  .modal-close { float: right; background: none; border: none; font-size: 20px; cursor: pointer; color: #94a3b8; padding: 4px 8px; border-radius: 4px; }
+  .modal-close:hover { background: #f1f5f9; color: #1e293b; }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; }
+  .stat-card .value { font-size: 28px; font-weight: 700; color: #1e293b; }
+  .stat-card .label { font-size: 12px; color: #64748b; margin-top: 4px; }
+  .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  .chart-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
+  .chart-box h4 { font-size: 13px; color: #1e293b; margin-bottom: 8px; font-weight: 600; }
+  @media print { body { background: #fff; padding: 0; } .container { box-shadow: none; padding: 8px; } .toolbar, .pagination, .row-del, .btn-undo, .btn-check, .btn-reset, .btn-dashboard, .btn-export-uw { display: none !important; } }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <div class="header-top">
+      <h2>PCIC R10 Monthly Accomplishment Report per Underwriter</h2>
+      <div class="countdown" id="countdown"></div>
+    </div>
+    <p id="currentMonthLabel"></p>
+  </div>
+  <div class="toolbar">
+    <button class="btn-add" onclick="addRow()">+ Add Row</button>
+    <button class="btn-undo" id="undoBtn" onclick="undoDelete()" disabled>Undo</button>
+    <button class="btn-export-uw" onclick="exportByUnderwriter()">Export by UW</button>
+    <button class="btn-check" onclick="validateAll()">Check</button>
+    <button class="btn-dashboard" onclick="openDashboard()">Dashboard</button>
+    <button class="btn-reset" onclick="promptReset()">Reset</button>
+    <select class="filter-select" id="uwFilter" onchange="filterTable()">
+      <option value="">All Underwriters</option>
+    </select>
+    <input class="search-box" id="searchBox" placeholder="Search..." oninput="filterTable()">
+    <span class="row-count">Rows: <strong id="rowCount">0</strong> &middot; <span id="saveStatus">starting...</span></span>
+  </div>
+  <div id="tableWrapper" style="overflow-x:auto;">
+    <table id="sheet">
+      <thead>
+        <tr id="headerRow"></tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+  <div class="pagination" id="pagination"></div>
+  <div class="summary" id="summary"></div>
+  <div class="weekly-summary" id="weeklySummary"></div>
+</div>
+<div class="toast" id="toast"></div>
+<div class="modal-overlay" id="dashboardModal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeDashboard()">&times;</button>
+    <h3>Dashboard</h3>
+    <div class="stats-grid" id="statsGrid"></div>
+    <div class="chart-row">
+      <div class="chart-box"><h4>Entries per Underwriter</h4><canvas id="chartUW"></canvas></div>
+      <div class="chart-box"><h4>Commodities Breakdown</h4><canvas id="chartCommodity"></canvas></div>
+    </div>
+    <div class="chart-row" style="margin-top:12px;">
+      <div class="chart-box"><h4>Monthly Trend</h4><canvas id="chartTrend"></canvas></div>
+      <div class="chart-box"><h4>Gender Distribution</h4><canvas id="chartGender"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzfeoD4V3f-uuzNkMq7tgb3tQW88e56WPYSUi4qfgcwHYCfRhcRJuMllH1GBL8X5us/exec";
+
+const COLS = [
+  { key: 'underwriter', header: 'Underwriter', width: 130, type: 'select', required: true },
+  { key: 'travelOrder', header: 'Travel Order', width: 100, type: 'text', required: true, maxlen: 30 },
+  { key: 'date', header: 'Date', width: 95, type: 'date', required: true },
+  { key: 'venue', header: 'Venue or Location', width: 160, type: 'text', required: true, maxlen: 100 },
+  { key: 'agency', header: 'Agency/IA/Coop/etc.', width: 160, type: 'text', required: true, maxlen: 100 },
+  { key: 'purpose', header: 'Purpose/Reason of Meeting', width: 200, type: 'textarea', required: true, maxlen: 200 },
+  { key: 'contact', header: 'Contact Person w/ Designation', width: 180, type: 'textarea', required: true, maxlen: 100 },
+  { key: 'male', header: 'Male', width: 70, type: 'number', required: true },
+  { key: 'female', header: 'Female', width: 70, type: 'number', required: true },
+  { key: 'total', header: 'Total', width: 55, type: 'number', required: true },
+  { key: 'brochure', header: 'Brochure', width: 55, type: 'number' },
+  { key: 'rice', header: 'Rice', width: 40, type: 'checkbox' },
+  { key: 'corn', header: 'Corn', width: 40, type: 'checkbox' },
+  { key: 'hvc', header: 'HVC', width: 40, type: 'checkbox' },
+  { key: 'liv', header: 'LIV', width: 40, type: 'checkbox' },
+  { key: 'fsh', header: 'FSH', width: 40, type: 'checkbox' },
+  { key: 'nci', header: 'NCI', width: 40, type: 'checkbox' },
+  { key: 'tip', header: 'TIP', width: 40, type: 'checkbox' },
+  { key: 'feedback', header: 'Feedbacks / Narrative Report', width: 260, type: 'textarea', maxlen: 500, required: true },
+  { key: 'comment', header: "Supervisor's Comment", width: 200, type: 'textarea', maxlen: 300, locked: true }
+];
+
+const underwriters = ["QND","ERL","GPUB","ICG","JABU","JBB","JFM","JNL","LBB","LLM","METB","MMS","NJE","PTJ","SJGN","TMR","JSE"];
+const defaultRow = { underwriter:"", travelOrder:"", date:"", venue:"", agency:"", purpose:"", contact:"", male:"", female:"", total:"", brochure:"", rice:false, corn:false, hvc:false, liv:false, fsh:false, nci:false, tip:false, feedback:"", comment:"", _submitted:false };
+
+let data = [];
+let rowIdCounter = 0;
+let deletedRow = null;
+let sortCol = null;
+let sortDir = 1;
+let currentPage = 1;
+const PAGE_SIZE = 50;
+let charts = {};
+
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function renderHeaders() {
+  const tr = document.getElementById('headerRow');
+  tr.innerHTML = '<th style="width:28px;cursor:default;">#</th>';
+  COLS.forEach((c, i) => {
+    const arrow = sortCol === i ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
+    const cls = sortCol === i ? ' class="active"' : '';
+    const req = c.required ? '<span class="req">*</span>' : '';
+    tr.innerHTML += `<th style="width:${c.width}px" onclick="sortBy(${i})">${c.header}${req}<span class="sort-arrow${cls}">${arrow}</span></th>`;
+  });
+  tr.innerHTML += '<th style="width:70px;cursor:default;">Submit</th><th style="width:28px;cursor:default;">&times;</th>';
+}
+
+function render() {
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  let filtered = getFilteredData();
+  if (sortCol !== null) {
+    const c = COLS[sortCol];
+    filtered.sort((a, b) => {
+      let va = a[c.key] ?? '', vb = b[c.key] ?? '';
+      if (c.type === 'number') { va = parseFloat(va) || 0; vb = parseFloat(vb) || 0; }
+      if (c.type === 'checkbox') { va = va ? 1 : 0; vb = vb ? 1 : 0; }
+      if (typeof va === 'string') va = va.toLowerCase();
+      if (typeof vb === 'string') vb = vb.toLowerCase();
+      return va < vb ? -sortDir : va > vb ? sortDir : 0;
+    });
+  }
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  if (currentPage > totalPages) currentPage = totalPages;
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const pageRows = filtered.slice(start, start + PAGE_SIZE);
+
+  let totalMale=0,totalFemale=0,totalTotal=0,totalBrochure=0,totalRice=0,totalCorn=0,totalHvc=0,totalLiv=0,totalFsh=0,totalNci=0,totalTip=0;
+  filtered.forEach(r => {
+    totalMale+=parseInt(r.male)||0; totalFemale+=parseInt(r.female)||0; totalTotal+=parseInt(r.total)||0;
+    totalBrochure+=parseInt(r.brochure)||0;
+    if(r.rice)totalRice++;if(r.corn)totalCorn++;if(r.hvc)totalHvc++;if(r.liv)totalLiv++;if(r.fsh)totalFsh++;if(r.nci)totalNci++;if(r.tip)totalTip++;
+  });
+
+  pageRows.forEach((row, idx) => {
+    const tr = document.createElement('tr');
+    tr.dataset.rowId = row._id;
+    const num = start + idx + 1;
+    let cells = `<td class="row-num">${num}</td>`;
+    COLS.forEach(c => {
+      if (c.type === 'select') {
+        cells += `<td><select onchange="updateField(${row._id},'${c.key}',this.value)">${makeOptions(underwriters,row[c.key])}</select></td>`;
+      } else if (c.type === 'date') {
+        cells += `<td><input type="date" value="${row[c.key]||''}" onchange="updateField(${row._id},'${c.key}',this.value)"></td>`;
+      } else if (c.type === 'textarea') {
+        const locked = c.locked ? ' readonly' : '';
+        cells += `<td><textarea rows="1"${locked} oninput="autoResize(this);updateField(${row._id},'${c.key}',this.value)" onclick="unlockComment(this)" maxlength="${c.maxlen||999}">${escHtml(row[c.key]||'')}</textarea></td>`;
+      } else if (c.type === 'checkbox') {
+        cells += `<td style="text-align:center"><input type="checkbox" ${row[c.key]?'checked':''} onchange="updateField(${row._id},'${c.key}',this.checked)"></td>`;
+      } else if (c.type === 'number') {
+        const bg = c.key==='total' ? 'background:#eff6ff;font-weight:600;' : '';
+        cells += `<td><input type="number" min="0" step="1" data-field="${c.key}" value="${row[c.key]||''}" ${c.key==='male'||c.key==='female' ? `oninput="updateField(${row._id},'${c.key}',this.value);autoTotal(${row._id})"` : `oninput="updateField(${row._id},'${c.key}',this.value)"`} onfocus="this.select()" style="${bg}"></td>`;
+      } else {
+        cells += `<td><input type="text" value="${escHtml(row[c.key]||'')}" oninput="updateField(${row._id},'${c.key}',this.value)" maxlength="${c.maxlen||999}"></td>`;
+      }
+    });
+    const submitted = row._submitted;
+    cells += `<td style="text-align:center;padding:2px;"><button class="btn-row-submit ${submitted?'submitted':''}" onclick="${submitted?'':'submitRow('+row._id+')'}" ${submitted?'disabled':''}>${submitted?'Complete':'Submit'}</button></td>`;
+    cells += `<td class="row-del" onclick="if(confirm('Delete this row?'))deleteRow(${row._id})" title="Delete">&times;</td>`;
+    tr.innerHTML = cells;
+    tbody.appendChild(tr);
+  });
+
+  renderPagination(totalPages, filtered.length);
+  renderWeeklySummary();
+  document.getElementById('rowCount').textContent = filtered.length;
+  document.getElementById('summary').innerHTML = `
+    <span><strong>Male:</strong> ${totalMale}</span><span><strong>Female:</strong> ${totalFemale}</span>
+    <span><strong>Total Persons:</strong> ${totalTotal}</span><span><strong>Brochure:</strong> ${totalBrochure}</span>
+    <span><strong>Rice:</strong> ${totalRice}</span><span><strong>Corn:</strong> ${totalCorn}</span>
+    <span><strong>HVC:</strong> ${totalHvc}</span><span><strong>LIV:</strong> ${totalLiv}</span>
+    <span><strong>FSH:</strong> ${totalFsh}</span><span><strong>NCI:</strong> ${totalNci}</span>
+    <span><strong>TIP:</strong> ${totalTip}</span>
+  `;
+}
+
+function renderPagination(totalPages, total) {
+  const el = document.getElementById('pagination');
+  if (totalPages <= 1) { el.innerHTML = ''; return; }
+  let html = `<button ${currentPage===1?'disabled':''} onclick="goPage(${currentPage-1})">&laquo;</button>`;
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || Math.abs(i - currentPage) <= 2) {
+      html += `<button class="${i===currentPage?'active':''}" onclick="goPage(${i})">${i}</button>`;
+    } else if (Math.abs(i - currentPage) === 3) {
+      html += '<span>...</span>';
+    }
+  }
+  html += `<button ${currentPage===totalPages?'disabled':''} onclick="goPage(${currentPage+1})">&raquo;</button>`;
+  html += `<span>${total} rows</span>`;
+  el.innerHTML = html;
+}
+
+function goPage(p) { currentPage = p; render(); }
+
+function getFilteredData() {
+  const search = (document.getElementById('searchBox')?.value || '').toLowerCase();
+  const uwFilter = document.getElementById('uwFilter')?.value || '';
+  return data.filter(r => {
+    if (uwFilter && r.underwriter !== uwFilter) return false;
+    if (search && !Object.values(r).join(' ').toLowerCase().includes(search)) return false;
+    return true;
+  });
+}
+
+function updateUwFilter() {
+  const sel = document.getElementById('uwFilter');
+  const current = sel.value;
+  const uws = [...new Set(data.map(r => r.underwriter).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">All Underwriters</option>' + uws.map(u => `<option value="${u}"${u===current?' selected':''}>${u}</option>`).join('');
+}
+
+function makeOptions(list, selected) {
+  return `<option value="" ${!selected?'selected':''}>Name</option>` + list.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
+}
+
+function sortBy(colIdx) {
+  if (sortCol === colIdx) sortDir *= -1;
+  else { sortCol = colIdx; sortDir = 1; }
+  renderHeaders(); render();
+}
+
+function saveToLocal() { localStorage.setItem('acc_data', JSON.stringify(data.map(({_id,...r})=>r))); }
+function loadFromLocal() {
+  const s = localStorage.getItem('acc_data');
+  if (s) { data = JSON.parse(s).map(r=>({...r,_id:++rowIdCounter})); return true; }
+  return false;
+}
+
+function updateField(id, field, value) {
+  const row = data.find(r => r._id === id);
+  if (row) { row[field] = value; saveToLocal(); }
+}
+
+function updateSummary() {
+  const filtered = getFilteredData();
+  let m=0,f=0,t=0,b=0,rc=0,cc=0,hc=0,lc=0,fc=0,nc=0,tc=0;
+  filtered.forEach(r=>{
+    m+=parseInt(r.male)||0; f+=parseInt(r.female)||0; t+=parseInt(r.total)||0; b+=parseInt(r.brochure)||0;
+    if(r.rice)rc++;if(r.corn)cc++;if(r.hvc)hc++;if(r.liv)lc++;if(r.fsh)fc++;if(r.nci)nc++;if(r.tip)tc++;
+  });
+  document.getElementById('summary').innerHTML =
+    `<span><strong>Male:</strong> ${m}</span><span><strong>Female:</strong> ${f}</span>`+
+    `<span><strong>Total Persons:</strong> ${t}</span><span><strong>Brochure:</strong> ${b}</span>`+
+    `<span><strong>Rice:</strong> ${rc}</span><span><strong>Corn:</strong> ${cc}</span>`+
+    `<span><strong>HVC:</strong> ${hc}</span><span><strong>LIV:</strong> ${lc}</span>`+
+    `<span><strong>FSH:</strong> ${fc}</span><span><strong>NCI:</strong> ${nc}</span>`+
+    `<span><strong>TIP:</strong> ${tc}</span>`;
+}
+
+function autoTotal(id) {
+  const row = data.find(r => r._id === id);
+  if (!row) return;
+  row.total = (parseInt(row.male)||0) + (parseInt(row.female)||0);
+  saveToLocal();
+  const el = document.querySelector(`[data-row-id="${id}"] input[data-field="total"]`);
+  if (el) el.value = row.total;
+  updateSummary();
+}
+
+function autoTotalAll() {
+  data.forEach(r => {
+    if (r.male !== '' && r.female !== '') {
+      r.total = (parseInt(r.male)||0) + (parseInt(r.female)||0);
+    }
+  });
+}
+
+function unlockComment(el) {
+  if (!el.hasAttribute('readonly')) return;
+  const pw = prompt('Enter admin password to unlock Supervisor\'s Comment:');
+  if (pw === 'admin4184') {
+    el.removeAttribute('readonly');
+    el.style.background = '';
+    el.style.color = '';
+    el.style.cursor = '';
+    el.focus();
+  }
+}
+function autoResize(ta) { ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; }
+
+function addRow() {
+  data.push({...defaultRow,_id:++rowIdCounter});
+  saveToLocal(); updateUwFilter(); render();
+  const last = document.getElementById('tbody').lastElementChild;
+  if (last) last.scrollIntoView({behavior:'smooth'});
+}
+
+function deleteRow(id) {
+  deletedRow = data.find(r => r._id === id);
+  data = data.filter(r => r._id !== id);
+  saveToLocal(); updateUwFilter(); render();
+  document.getElementById('undoBtn').disabled = false;
+}
+
+function undoDelete() {
+  if (!deletedRow) return;
+  data.push(deletedRow);
+  deletedRow = null;
+  document.getElementById('undoBtn').disabled = true;
+  saveToLocal(); updateUwFilter(); render();
+  showToast('Row restored');
+}
+
+function filterTable() { currentPage = 1; render(); }
+
+function exportByUnderwriter() {
+  const uw = prompt('Enter underwriter to export (e.g. QND):');
+  if (!uw) return;
+  const filtered = data.filter(r => r.underwriter === uw);
+  if (!filtered.length) { showToast('No entries found for ' + uw); return; }
+  const headers = COLS.map(c=>c.header);
+  let csv = headers.map(h=>`"${h}"`).join(',')+'\r\n';
+  filtered.forEach(row => {
+    csv += COLS.map(c => {
+      let v = row[c.key] ?? '';
+      if (c.type==='checkbox') v = v ? 'Yes' : 'No';
+      return `"${String(v).replace(/"/g,'""')}"`;
+    }).join(',')+'\r\n';
+  });
+  downloadFile(csv, `PCIC_R10_${uw}.csv`);
+  showToast('Exported ' + filtered.length + ' row(s) for ' + uw);
+}
+
+function downloadFile(content, filename) {
+  const blob = new Blob(['\uFEFF'+content], {type:'text/csv;charset=utf-8;'});
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
+function promptReset() {
+  const pwd = prompt('Enter password to reset:');
+  if (pwd === 'admin4184') {
+    if (confirm('Clear all data?')) {
+      localStorage.removeItem('acc_data');
+      data = []; rowIdCounter = 0;
+      deletedRow = null;
+      document.getElementById('undoBtn').disabled = true;
+      updateUwFilter(); render();
+      showToast('Data cleared');
+    }
+  } else if (pwd !== null) showToast('Incorrect password');
+}
+
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// Validation
+function getMissingFields(row) {
+  return COLS.filter(c => c.required).filter(c => !row[c.key] || (typeof row[c.key]==='string' && !row[c.key].trim()));
+}
+
+function getMonth(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr+'T00:00:00');
+  return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]+' '+d.getFullYear();
+}
+
+function getWeek(dateStr) {
+  if (!dateStr) return '';
+  const day = new Date(dateStr+'T00:00:00').getDate();
+  if (day<=7) return 'Week 1'; if (day<=14) return 'Week 2';
+  if (day<=21) return 'Week 3'; if (day<=28) return 'Week 4'; return 'Week 5';
+}
+
+function validateAll() {
+  document.querySelectorAll('#tbody tr').forEach(tr=>tr.querySelectorAll('.missing').forEach(el=>el.classList.remove('missing')));
+  let totalMissing = 0;
+  data.forEach(row => {
+    const missing = getMissingFields(row);
+    if (missing.length) {
+      totalMissing++;
+      const tr = document.querySelector(`tr[data-row-id="${row._id}"]`);
+      if (tr) {
+        COLS.forEach((c, i) => {
+          if (missing.includes(c)) {
+            const td = tr.querySelectorAll('td')[i+1];
+            if (td) td.classList.add('missing');
+          }
+        });
+      }
+    }
+  });
+  renderWeeklySummary();
+  if (totalMissing) showToast(totalMissing+' row(s) with missing fields highlighted');
+  else showToast('All rows are complete!');
+}
+
+function renderWeeklySummary() {
+  const groups = {};
+  data.forEach((row,idx) => {
+    const uw = row.underwriter||'(blank)';
+    const month = getMonth(row.date)||'(no date)';
+    const week = getWeek(row.date)||'(no date)';
+    const key = uw+'|'+month+'|'+week;
+    if (!groups[key]) groups[key]={underwriter:uw,month,week,total:0,incomplete:0,details:[]};
+    groups[key].total++;
+    const missing = getMissingFields(row);
+    if (missing.length) { groups[key].incomplete += missing.length; groups[key].details.push(`Row ${idx+1}: ${missing.map(f=>f.header).join(', ')}`); }
+  });
+  const sorted = Object.values(groups).sort((a,b)=>{
+    if(a.underwriter!==b.underwriter) return a.underwriter.localeCompare(b.underwriter);
+    if(a.month!==b.month) return a.month.localeCompare(b.month);
+    return a.week.localeCompare(b.week);
+  });
+
+  let html = '<h3>Incomplete Summary</h3><table><tr><th>Underwriter</th><th>Month</th><th>Week</th><th>Total</th><th>Incomplete</th><th>Missing Fields</th></tr>';
+  sorted.filter(g=>g.incomplete).forEach(g=>{
+    const s = g.incomplete ? `<span class="ws-warn">${g.incomplete}</span>` : '<span class="ws-ok">0</span>';
+    const d = g.details.length ? g.details.join('<br>') : '<span class="ws-ok">&mdash;</span>';
+    html+=`<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${g.month}</td><td>${g.week}</td><td>${g.total}</td><td>${s}</td><td style="font-size:11px;text-align:left;">${d}</td></tr>`;
+  });
+  html+='</table>';
+
+  const now=new Date();
+  const curMonth=now.toLocaleString('en-US',{month:'short'})+' '+now.getFullYear();
+  const curRows=data.filter(r=>getMonth(r.date)===curMonth);
+  const uwGroups={};
+  curRows.forEach(r=>{const uw=r.underwriter||'(blank)';if(!uwGroups[uw])uwGroups[uw]=[];uwGroups[uw].push(r);});
+
+  html+='<h3 style="margin-top:20px;">Output for '+curMonth+'</h3>';
+  html+='<table><tr><th>Underwriter</th><th>Travel Order</th><th>Date</th><th>Venue</th><th>Agency</th></tr>';
+  let rowCount=0;
+  Object.keys(uwGroups).sort().forEach(uw=>{
+    uwGroups[uw].forEach((r,i)=>{
+      rowCount++;
+      html+=`<tr><td class="left">${i===0?'<strong>'+escHtml(uw)+'</strong>':''}</td>`;
+      html+=`<td>${escHtml(r.travelOrder)}</td><td>${r.date||'&mdash;'}</td><td>${escHtml(r.venue)||'&mdash;'}</td><td>${escHtml(r.agency)||'&mdash;'}</td></tr>`;
+    });
+  });
+  if(!rowCount) html+='<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:16px;">No entries for this month</td></tr>';
+  html+=`<tr style="font-weight:600;background:#f1f5f9;"><td colspan="4" class="left"><strong>Total</strong></td><td><strong>${rowCount}</strong></td></tr></table>`;
+  document.getElementById('weeklySummary').innerHTML = html;
+}
+
+// Dashboard
+function openDashboard() {
+  document.getElementById('dashboardModal').classList.add('show');
+  renderDashboard();
+}
+function closeDashboard() {
+  document.getElementById('dashboardModal').classList.remove('show');
+  Object.values(charts).forEach(c=>c.destroy());
+  charts = {};
+}
+
+function renderDashboard() {
+  const totalEntries = data.length;
+  const totalMale = data.reduce((s,r)=>s+(parseInt(r.male)||0),0);
+  const totalFemale = data.reduce((s,r)=>s+(parseInt(r.female)||0),0);
+  const totalBrochure = data.reduce((s,r)=>s+(parseInt(r.brochure)||0),0);
+  const completeRows = data.filter(r=>getMissingFields(r).length===0).length;
+  const uwCount = [...new Set(data.map(r=>r.underwriter).filter(Boolean))].length;
+
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card"><div class="value">${totalEntries}</div><div class="label">Total Entries</div></div>
+    <div class="stat-card"><div class="value">${uwCount}</div><div class="label">Active Underwriters</div></div>
+    <div class="stat-card"><div class="value">${totalMale+totalFemale}</div><div class="label">Total Persons</div></div>
+    <div class="stat-card"><div class="value">${totalBrochure}</div><div class="label">Brochures Distributed</div></div>
+    <div class="stat-card"><div class="value">${totalEntries?Math.round(completeRows/totalEntries*100):0}%</div><div class="label">Completion Rate</div></div>
+  `;
+
+  const uwData = {};
+  data.forEach(r => { const uw=r.underwriter||'(blank)'; uwData[uw]=(uwData[uw]||0)+1; });
+  const uwLabels = Object.keys(uwData).sort();
+  charts.uw = new Chart(document.getElementById('chartUW'), {
+    type: 'bar', data: { labels: uwLabels, datasets: [{ label: 'Entries', data: uwLabels.map(u=>uwData[u]), backgroundColor: '#2563eb' }] },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  });
+
+  const commodities = { Rice: 0, Corn: 0, HVC: 0, LIV: 0, FSH: 0, NCI: 0, TIP: 0 };
+  data.forEach(r => { Object.keys(commodities).forEach(k=>{ if(r[k.toLowerCase()]) commodities[k]++; }); });
+  charts.commodity = new Chart(document.getElementById('chartCommodity'), {
+    type: 'doughnut', data: { labels: Object.keys(commodities), datasets: [{ data: Object.values(commodities), backgroundColor: ['#2563eb','#059669','#d97706','#dc2626','#7c3aed','#0891b2','#be123c'] }] },
+    options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }
+  });
+
+  const monthData = {};
+  data.forEach(r => { const m=getMonth(r.date); if(m) monthData[m]=(monthData[m]||0)+1; });
+  const mLabels = Object.keys(monthData).sort();
+  charts.trend = new Chart(document.getElementById('chartTrend'), {
+    type: 'line', data: { labels: mLabels, datasets: [{ label: 'Entries', data: mLabels.map(m=>monthData[m]), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.1)', fill: true, tension: 0.3 }] },
+    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  });
+
+  charts.gender = new Chart(document.getElementById('chartGender'), {
+    type: 'pie', data: { labels: ['Male','Female'], datasets: [{ data: [totalMale,totalFemale], backgroundColor: ['#2563eb','#ec4899'] }] },
+    options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }
+  });
+}
+
+// Google Sheets Sync
+async function fetchFromSheet() {
+  const status = document.getElementById('saveStatus');
+  if (loadFromLocal()) { autoTotalAll(); updateUwFilter(); render(); status.textContent='local'; }
+  try {
+    const resp = await fetch(APPS_SCRIPT_URL);
+    const json = await resp.json();
+    if (Array.isArray(json) && json.length) {
+      data = json.map(r => {
+        const row = {...defaultRow};
+        COLS.forEach(c => {
+          let v = r[c.header] ?? '';
+          if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
+          row[c.key] = v;
+        });
+        return {...row,_id:++rowIdCounter};
+      });
+      autoTotalAll(); updateUwFilter(); render();
+      status.textContent='synced'; saveToLocal();
+      showToast('Loaded '+data.length+' row(s) from Google Sheets');
+    } else { status.textContent='local'; }
+  } catch(e) {
+    status.textContent='local';
+    if (!data.length) { data=[]; rowIdCounter=0; render(); showToast('No data found. Add rows to get started.'); }
+  }
+}
+
+async function submitRow(id) {
+  const row = data.find(r => r._id === id);
+  if (!row || row._submitted) return;
+
+  const missing = getMissingFields(row);
+  if (missing.length) {
+    showToast('Incomplete Entries');
+    validateAll();
+    return;
+  }
+
+  const btn = document.querySelector(`tr[data-row-id="${id}"] .btn-row-submit`);
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+  const obj = {};
+  COLS.forEach(c => {
+    let v = row[c.key] ?? '';
+    if (c.type==='checkbox') v = v ? 'Yes' : 'No';
+    obj[c.header] = v;
+  });
+
+  try {
+    await fetch(APPS_SCRIPT_URL + '?mode=append', {
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify([obj])
+    });
+    row._submitted = true;
+    saveToLocal();
+    if (btn) { btn.textContent = 'Complete'; btn.classList.add('submitted'); btn.disabled = true; }
+    showToast('Row submitted');
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Submit'; }
+    showToast('Submit failed: ' + e.message);
+  }
+}
+
+function updateCountdown() {
+  const now = new Date();
+  const day = now.getDay();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const seconds = now.getSeconds();
+
+  let daysToTuesday = (2 - day + 7) % 7;
+  if (daysToTuesday === 0 && (hours > 23 || (hours === 23 && minutes >= 59))) {
+    daysToTuesday = 7;
+  }
+
+  const target = new Date(now);
+  target.setDate(target.getDate() + daysToTuesday);
+  target.setHours(23, 59, 0, 0);
+
+  const diff = target - now;
+  if (diff <= 0) {
+    document.getElementById('countdown').textContent = '00:00:00';
+    return;
+  }
+
+  const d = Math.floor(diff / 86400000);
+  const h = Math.floor((diff % 86400000) / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+
+  const pad = n => String(n).padStart(2, '0');
+  const el = document.getElementById('countdown');
+  el.textContent = d > 0 ? d + 'd ' + pad(h) + ':' + pad(m) + ':' + pad(s) : pad(h) + ':' + pad(m) + ':' + pad(s);
+}
+
+document.getElementById('currentMonthLabel').textContent =
+  new Date().toLocaleString('en-US',{month:'long'})+' '+new Date().getFullYear();
+
+renderHeaders();
+fetchFromSheet();
+updateCountdown();
+setInterval(updateCountdown, 1000);
+</script>
+</body>
+</html>
