@@ -426,6 +426,8 @@ function downloadFile(content, filename) {
 }
 
 function promptReset() {
+  const pwd = prompt('Enter password to reset:');
+  if (pwd !== 'admin4184') { if (pwd !== null) showToast('Incorrect password'); return; }
   if (confirm('Are you sure? This will clear all data entries.')) {
     localStorage.removeItem('acc_data');
     data = []; rowIdCounter = 0;
@@ -618,6 +620,9 @@ async function fetchFromSheet() {
 async function submitRow(id) {
   const row = data.find(r => r._id === id);
   if (!row || row._submitted) return;
+
+  const pw = prompt('Enter admin password to submit:');
+  if (pw !== 'admin4184') { showToast('Incorrect password.'); return; }
 
   const missing = getMissingFields(row);
   if (missing.length) {
