@@ -514,7 +514,7 @@ function renderWeeklySummary() {
 
   const now=new Date();
   const curMonth=now.toLocaleString('en-US',{month:'short'})+' '+now.getFullYear();
-  const curRows=data.filter(r=>getMonth(r.date)===curMonth && r._submitted);
+  const curRows=data.filter(r=>getMonth(r.date)===curMonth);
   const uwGroups={};
   curRows.forEach(r=>{const uw=r.underwriter||'(blank)';if(!uwGroups[uw])uwGroups[uw]=[];uwGroups[uw].push(r);});
 
