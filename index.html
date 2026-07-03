@@ -195,6 +195,8 @@ let sortDir = 1;
 let currentPage = 1;
 const PAGE_SIZE = 50;
 let charts = {};
+let monthlyData = [];
+let monthlySummaryLoaded = false;
 
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
@@ -528,8 +530,7 @@ function renderWeeklySummary() {
 }
 
 function renderSheetSummary() {
-  const submitted = data.filter(r => r._submitted);
-  if (!submitted.length) { document.getElementById('sheetSummary').innerHTML = ''; return; }
+  if (!monthlyData.length) { document.getElementById('sheetSummary').innerHTML = ''; return; }
   const fields = [
     { key: 'underwriter', h: 'Underwriter' },
     { key: 'travelOrder', h: 'Travel Order' },
@@ -547,7 +548,7 @@ function renderSheetSummary() {
     { key: 'tip', h: 'TIP' }
   ];
   let html = '<h3>Submitted Entries Summary</h3><table><tr>' + fields.map(f => '<th>' + f.h + '</th>').join('') + '</tr>';
-  submitted.forEach(r => {
+  monthlyData.forEach(r => {
     html += '<tr>' + fields.map(f => {
       let v = r[f.key] ?? '';
       if (f.key === 'rice' || f.key === 'corn' || f.key === 'hvc' || f.key === 'liv' || f.key === 'fsh' || f.key === 'nci' || f.key === 'tip') {
@@ -558,6 +559,28 @@ function renderSheetSummary() {
   });
   html += '</table>';
   document.getElementById('sheetSummary').innerHTML = html;
+}
+
+async function fetchMonthlySummary() {
+  const now = new Date();
+  const month = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][now.getMonth()] + ' ' + now.getFullYear();
+  try {
+    const resp = await fetch(APPS_SCRIPT_URL + '?month=' + encodeURIComponent(month));
+    const json = await resp.json();
+    if (Array.isArray(json)) {
+      monthlyData = json.map(r => {
+        const row = {};
+        COLS.forEach(c => {
+          let v = r[c.header] ?? '';
+          if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
+          row[c.key] = v;
+        });
+        return row;
+      });
+      monthlySummaryLoaded = true;
+      renderSheetSummary();
+    }
+  } catch(e) {}
 }
 
 // Dashboard
@@ -730,6 +753,7 @@ document.getElementById('currentMonthLabel').textContent =
 
 renderHeaders();
 fetchFromSheet();
+fetchMonthlySummary();
 updateCountdown();
 setInterval(updateCountdown, 1000);
 </script>
