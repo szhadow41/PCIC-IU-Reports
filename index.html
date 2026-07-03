@@ -248,7 +248,7 @@ function render() {
       if (c.type === 'select') {
         cells += `<td><select onchange="updateField(${row._id},'${c.key}',this.value)">${makeOptions(underwriters,row[c.key])}</select></td>`;
       } else if (c.type === 'date') {
-        cells += `<td><input type="date" value="${row[c.key]||''}" onchange="updateField(${row._id},'${c.key}',this.value)"></td>`;
+        cells += `<td><input type="date" value="${row[c.key]||''}" oninput="updateField(${row._id},'${c.key}',this.value)"></td>`;
       } else if (c.type === 'textarea') {
         const locked = c.locked ? ' readonly' : '';
         cells += `<td><textarea rows="1"${locked} oninput="autoResize(this);updateField(${row._id},'${c.key}',this.value)" onclick="unlockComment(this)" maxlength="${c.maxlen||999}">${escHtml(row[c.key]||'')}</textarea></td>`;
