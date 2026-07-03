@@ -426,17 +426,14 @@ function downloadFile(content, filename) {
 }
 
 function promptReset() {
-  const pwd = prompt('Enter password to reset:');
-  if (pwd === 'admin4184') {
-    if (confirm('Clear all data?')) {
-      localStorage.removeItem('acc_data');
-      data = []; rowIdCounter = 0;
-      deletedRow = null;
-      document.getElementById('undoBtn').disabled = true;
-      updateUwFilter(); render();
-      showToast('Data cleared');
-    }
-  } else if (pwd !== null) showToast('Incorrect password');
+  if (confirm('Are you sure? This will clear all data entries.')) {
+    localStorage.removeItem('acc_data');
+    data = []; rowIdCounter = 0;
+    deletedRow = null;
+    document.getElementById('undoBtn').disabled = true;
+    updateUwFilter(); render();
+    showToast('Data cleared');
+  }
 }
 
 function showToast(msg) {
