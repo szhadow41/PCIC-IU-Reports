@@ -504,7 +504,7 @@ function renderWeeklySummary() {
     if (!groups[key]) groups[key]={underwriter:uw,month,week,total:0,incomplete:0,details:[]};
     groups[key].total++;
     const missing = getMissingFields(row);
-    if (missing.length) { groups[key].incomplete += missing.length; groups[key].details.push(`Row ${idx+1}: ${missing.map(f=>f.header).join(', ')}`); }
+    if (missing.length) { groups[key].incomplete++; groups[key].details.push(`Row ${idx+1}: ${missing.map(f=>f.header).join(', ')}`); }
   });
   const sorted = Object.values(groups).sort((a,b)=>{
     if(a.underwriter!==b.underwriter) return a.underwriter.localeCompare(b.underwriter);
@@ -559,32 +559,29 @@ function renderSheetSummary() {
 
 async function fetchMonthlySummary() {
   const now = new Date();
-  const months = new Set();
+  const months = [];
   for (let offset = -1; offset <= 1; offset++) {
     const d = new Date(now);
     d.setMonth(d.getMonth() + offset);
-    months.add(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getFullYear());
+    months.push(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getFullYear());
   }
+  monthlyData = [];
   try {
-    const resp = await fetch(APPS_SCRIPT_URL);
-    const json = await resp.json();
-    monthlyData = [];
-    if (Array.isArray(json)) {
-      json.forEach(r => {
-        const dateStr = r["Start Date"] || '';
-        if (!dateStr) return;
-        const d = new Date(dateStr);
-        const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getFullYear();
-        if (!months.has(m)) return;
-        const row = {};
-        COLS.forEach(c => {
-          let v = r[c.header] ?? '';
-          if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
-          if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
-          row[c.key] = v;
+    for (const m of months) {
+      const resp = await fetch(APPS_SCRIPT_URL + '?month=' + encodeURIComponent(m));
+      const json = await resp.json();
+      if (Array.isArray(json)) {
+        json.forEach(r => {
+          const row = {};
+          COLS.forEach(c => {
+            let v = r[c.header] ?? '';
+            if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
+            if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
+            row[c.key] = v;
+          });
+          monthlyData.push(row);
         });
-        monthlyData.push(row);
-      });
+      }
     }
   } catch(e) {}
   renderSheetSummary();
@@ -696,27 +693,12 @@ async function submitRow(id) {
   const btn = document.querySelector(`tr[data-row-id="${id}"] .btn-row-submit`);
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
 
-  const tr = document.querySelector(`tr[data-row-id="${id}"]`);
   const obj = {};
-  COLS.forEach((c, i) => {
-    const td = tr ? tr.querySelectorAll('td')[i+1] : null;
-    if (td) {
-      const el = td.querySelector('input, select, textarea');
-      if (el) {
-        let v = el.type==='checkbox' ? el.checked : el.value;
-        if (c.type==='checkbox') v = v ? 'Yes' : 'No';
-        obj[c.header] = v;
-        row[c.key] = el.type==='checkbox' ? el.checked : el.value;
-      } else {
-        obj[c.header] = row[c.key] ?? '';
-      }
-    } else {
-      obj[c.header] = row[c.key] ?? '';
-    }
+  COLS.forEach(c => {
+    let v = row[c.key] ?? '';
+    if (c.type==='checkbox') v = v ? 'Yes' : 'No';
+    obj[c.header] = v;
   });
-  saveToLocal();
-  console.log('Submitting:', JSON.stringify(obj, null, 2));
-  showToast('Sending: ' + JSON.stringify(obj).slice(0,200));
 
   try {
     await fetch(APPS_SCRIPT_URL + '?mode=append', {
@@ -729,10 +711,6 @@ async function submitRow(id) {
     saveToLocal();
     if (btn) { btn.textContent = 'Complete'; btn.classList.add('submitted'); btn.disabled = true; }
     showToast('Row submitted');
-  // Show what was sent for debugging
-  const keys = ['Underwriter','Start Date','End Date','Agency/IA/Coop/etc.','Contact Person w/ Designation','Feedbacks / Narrative Report'];
-  const dbg = keys.map(k => k+': '+JSON.stringify(obj[k])).join('\n');
-  setTimeout(() => alert('Sent to sheet:\n' + dbg), 500);
   } catch(e) {
     if (btn) { btn.disabled = false; btn.textContent = 'Submit'; }
     showToast('Submit failed: ' + e.message);
@@ -742,13 +720,12 @@ async function submitRow(id) {
 function updateCountdown() {
   const now = new Date();
   const day = now.getDay();
-  const hours = now.getHours();
-  const minutes = now.getMinutes();
-  const seconds = now.getSeconds();
 
   let daysToTuesday = (2 - day + 7) % 7;
-  if (daysToTuesday === 0 && (hours > 23 || (hours === 23 && minutes >= 59))) {
-    daysToTuesday = 7;
+  if (daysToTuesday === 0) {
+    const targetTue = new Date(now);
+    targetTue.setHours(23, 59, 0, 0);
+    if (now >= targetTue) daysToTuesday = 7;
   }
 
   const target = new Date(now);
