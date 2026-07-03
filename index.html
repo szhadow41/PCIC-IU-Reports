@@ -596,13 +596,13 @@ async function fetchFromSheet() {
         data = []; rowIdCounter = 0; localStorage.removeItem('acc_data');
         updateUwFilter(); render();
         status.textContent='synced';
-        showToast('Sheet is empty — no data loaded');
+        showToast('Sheet is empty');
       }
-    } else { status.textContent='local'; }
+    }
   } catch(e) {
-    status.textContent='local';
-    if (loadFromLocal()) { autoTotalAll(); updateUwFilter(); render(); }
-    else { data=[]; rowIdCounter=0; render(); showToast('No data found. Add rows to get started.'); }
+    status.textContent='offline';
+    data = []; rowIdCounter = 0; render();
+    showToast('Could not connect to sheet');
   }
 }
 
