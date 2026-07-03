@@ -512,24 +512,6 @@ function renderWeeklySummary() {
   });
   html+='</table>';
 
-  const now=new Date();
-  const curMonth=now.toLocaleString('en-US',{month:'short'})+' '+now.getFullYear();
-  const curRows=data.filter(r=>getMonth(r.date)===curMonth && r._submitted);
-  const uwGroups={};
-  curRows.forEach(r=>{const uw=r.underwriter||'(blank)';if(!uwGroups[uw])uwGroups[uw]=[];uwGroups[uw].push(r);});
-
-  html+='<h3 style="margin-top:20px;">Output for '+curMonth+'</h3>';
-  html+='<table><tr><th>Underwriter</th><th>Travel Order</th><th>Date</th><th>Venue</th><th>Agency</th></tr>';
-  let rowCount=0;
-  Object.keys(uwGroups).sort().forEach(uw=>{
-    uwGroups[uw].forEach((r,i)=>{
-      rowCount++;
-      html+=`<tr><td class="left">${i===0?'<strong>'+escHtml(uw)+'</strong>':''}</td>`;
-      html+=`<td>${escHtml(r.travelOrder)}</td><td>${r.date||'&mdash;'}</td><td>${escHtml(r.venue)||'&mdash;'}</td><td>${escHtml(r.agency)||'&mdash;'}</td></tr>`;
-    });
-  });
-  if(!rowCount) html+='<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:16px;">No entries for this month</td></tr>';
-  html+=`<tr style="font-weight:600;background:#f1f5f9;"><td colspan="4" class="left"><strong>Total</strong></td><td><strong>${rowCount}</strong></td></tr></table>`;
   document.getElementById('weeklySummary').innerHTML = html;
 }
 
