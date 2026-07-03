@@ -695,13 +695,6 @@ async function submitRow(id) {
   const pw = prompt('Enter admin password to submit:');
   if (pw !== 'admin4184') { showToast('Incorrect password.'); return; }
 
-  const missing = getMissingFields(row);
-  if (missing.length) {
-    showToast('Incomplete Entries');
-    validateAll();
-    return;
-  }
-
   const btn = document.querySelector(`tr[data-row-id="${id}"] .btn-row-submit`);
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
 
