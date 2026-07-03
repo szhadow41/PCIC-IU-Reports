@@ -543,8 +543,8 @@ function renderSheetSummary() {
   ];
   let html = '<h3>Submitted Entries Summary</h3><table><tr>' + fields.map(f => '<th>' + f.h + '</th>').join('') + '</tr>';
   monthlyData.forEach(r => {
-    const month = r.date ? (['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][new Date(r.date+'T00:00:00').getMonth()] + ' ' + new Date(r.date+'T00:00:00').getFullYear()) : '';
-    const date = r.date ? new Date(r.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'2-digit',year:'numeric'}) : '';
+    const month = r.date ? (['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][new Date(r.date).getMonth()] + ' ' + new Date(r.date).getFullYear()) : '';
+    const date = r.date ? new Date(r.date).toLocaleDateString('en-US',{month:'short',day:'2-digit',year:'numeric'}) : '';
     html += '<tr>' + fields.map(f => {
       if (f.key === 'month') return '<td>' + month + '</td>';
       if (f.key === 'date') return '<td>' + date + '</td>';
@@ -568,6 +568,7 @@ async function fetchMonthlySummary() {
         COLS.forEach(c => {
           let v = r[c.header] ?? '';
           if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
+          if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
           row[c.key] = v;
         });
         return row;
