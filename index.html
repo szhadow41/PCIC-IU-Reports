@@ -732,9 +732,6 @@ async function submitRow(id) {
   const row = data.find(r => r._id === id);
   if (!row || row._submitted) return;
 
-  const pw = prompt('Enter admin password to submit:');
-  if (pw !== 'admin4184') { showToast('Incorrect password.'); return; }
-
   const btn = document.querySelector(`tr[data-row-id="${id}"] .btn-row-submit`);
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
 
