@@ -574,28 +574,35 @@ function renderDashboard() {
 // Google Sheets Sync
 async function fetchFromSheet() {
   const status = document.getElementById('saveStatus');
-  if (loadFromLocal()) { autoTotalAll(); updateUwFilter(); render(); status.textContent='local'; }
   try {
     const resp = await fetch(APPS_SCRIPT_URL);
     const json = await resp.json();
-    if (Array.isArray(json) && json.length) {
-      data = json.map(r => {
-        const row = {...defaultRow};
-        COLS.forEach(c => {
-          let v = r[c.header] ?? '';
-          if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
-          row[c.key] = v;
+    if (Array.isArray(json)) {
+      if (json.length) {
+        data = json.map(r => {
+          const row = {...defaultRow};
+          COLS.forEach(c => {
+            let v = r[c.header] ?? '';
+            if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
+            row[c.key] = v;
+          });
+          row._submitted = true;
+          return {...row,_id:++rowIdCounter};
         });
-        row._submitted = true;
-        return {...row,_id:++rowIdCounter};
-      });
-      autoTotalAll(); updateUwFilter(); render();
-      status.textContent='synced'; saveToLocal();
-      showToast('Loaded '+data.length+' row(s) from Google Sheets');
+        autoTotalAll(); updateUwFilter(); render();
+        status.textContent='synced'; saveToLocal();
+        showToast('Loaded '+data.length+' row(s) from Google Sheets');
+      } else {
+        data = []; rowIdCounter = 0; localStorage.removeItem('acc_data');
+        updateUwFilter(); render();
+        status.textContent='synced';
+        showToast('Sheet is empty — no data loaded');
+      }
     } else { status.textContent='local'; }
   } catch(e) {
     status.textContent='local';
-    if (!data.length) { data=[]; rowIdCounter=0; render(); showToast('No data found. Add rows to get started.'); }
+    if (loadFromLocal()) { autoTotalAll(); updateUwFilter(); render(); }
+    else { data=[]; rowIdCounter=0; render(); showToast('No data found. Add rows to get started.'); }
   }
 }
 
