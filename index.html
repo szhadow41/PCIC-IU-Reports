@@ -696,12 +696,27 @@ async function submitRow(id) {
   const btn = document.querySelector(`tr[data-row-id="${id}"] .btn-row-submit`);
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
 
+  const tr = document.querySelector(`tr[data-row-id="${id}"]`);
   const obj = {};
-  COLS.forEach(c => {
-    let v = row[c.key] ?? '';
-    if (c.type==='checkbox') v = v ? 'Yes' : 'No';
-    obj[c.header] = v;
+  COLS.forEach((c, i) => {
+    const td = tr ? tr.querySelectorAll('td')[i+1] : null;
+    if (td) {
+      const el = td.querySelector('input, select, textarea');
+      if (el) {
+        let v = el.type==='checkbox' ? el.checked : el.value;
+        if (c.type==='checkbox') v = v ? 'Yes' : 'No';
+        obj[c.header] = v;
+        row[c.key] = el.type==='checkbox' ? el.checked : el.value;
+      } else {
+        obj[c.header] = row[c.key] ?? '';
+      }
+    } else {
+      obj[c.header] = row[c.key] ?? '';
+    }
   });
+  saveToLocal();
+  console.log('Submitting:', JSON.stringify(obj, null, 2));
+  showToast('Sending: ' + JSON.stringify(obj).slice(0,200));
 
   try {
     await fetch(APPS_SCRIPT_URL + '?mode=append', {
@@ -714,6 +729,10 @@ async function submitRow(id) {
     saveToLocal();
     if (btn) { btn.textContent = 'Complete'; btn.classList.add('submitted'); btn.disabled = true; }
     showToast('Row submitted');
+  // Show what was sent for debugging
+  const keys = ['Underwriter','Start Date','End Date','Agency/IA/Coop/etc.','Contact Person w/ Designation','Feedbacks / Narrative Report'];
+  const dbg = keys.map(k => k+': '+JSON.stringify(obj[k])).join('\n');
+  setTimeout(() => alert('Sent to sheet:\n' + dbg), 500);
   } catch(e) {
     if (btn) { btn.disabled = false; btn.textContent = 'Submit'; }
     showToast('Submit failed: ' + e.message);
