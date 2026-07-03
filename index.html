@@ -53,9 +53,9 @@
   th .sort-arrow { font-size: 10px; margin-left: 2px; opacity: 0.5; }
   th .sort-arrow.active { opacity: 1; }
   th .req { color: #f87171; margin-left: 2px; }
-  td { border-bottom: 1px solid #e2e8f0; padding: 4px; vertical-align: top; }
+  td { border-bottom: 1px solid #e2e8f0; padding: 4px; vertical-align: top; text-align: center; }
   tr:hover td { background: #f8fafc; }
-  td input, td select, td textarea { width: 100%; border: none; outline: none; padding: 5px 6px; font-size: 12px; font-family: inherit; background: transparent; resize: vertical; min-height: 32px; border-radius: 4px; transition: background 0.15s; }
+  td input, td select, td textarea { width: 100%; border: none; outline: none; padding: 5px 6px; font-size: 12px; font-family: inherit; background: transparent; resize: vertical; min-height: 32px; border-radius: 4px; transition: background 0.15s; text-align: center; }
   td input:focus, td select:focus, td textarea:focus { background: #eff6ff; }
   td textarea[readonly] { background: #f1f5f9; color: #64748b; cursor: pointer; user-select: none; }
   td textarea[readonly]:hover { background: #e2e8f0; }
@@ -461,13 +461,22 @@ function getMissingFields(row) {
 
 function getMonth(dateStr) {
   if (!dateStr) return '';
-  const d = new Date(dateStr+'T00:00:00');
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const d = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+    if (!isNaN(d)) return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]+' '+d.getFullYear();
+  }
+  const d = new Date(dateStr);
+  if (isNaN(d)) return '';
   return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]+' '+d.getFullYear();
 }
 
 function getWeek(dateStr) {
   if (!dateStr) return '';
-  const day = new Date(dateStr+'T00:00:00').getDate();
+  const parts = dateStr.split('-');
+  const d = parts.length === 3 ? new Date(+parts[0], +parts[1] - 1, +parts[2]) : new Date(dateStr);
+  if (isNaN(d)) return '';
+  const day = d.getDate();
   if (day<=7) return 'Week 1'; if (day<=14) return 'Week 2';
   if (day<=21) return 'Week 3'; if (day<=28) return 'Week 4'; return 'Week 5';
 }
@@ -559,32 +568,67 @@ function renderSheetSummary() {
 }
 
 async function fetchMonthlySummary() {
-  const now = new Date();
-  const months = [];
-  for (let offset = -1; offset <= 1; offset++) {
-    const d = new Date(now);
-    d.setMonth(d.getMonth() + offset);
-    months.push(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getFullYear());
-  }
   monthlyData = [];
-  try {
-    for (const m of months) {
-      const resp = await fetch(APPS_SCRIPT_URL + '?month=' + encodeURIComponent(m));
-      const json = await resp.json();
+  var dataSeen = new Set();
+
+  function mapRow(r) {
+    var row = {};
+    COLS.forEach(function(c) {
+      var v = r[c.header] ?? '';
+      if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
+      if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
+      row[c.key] = v;
+    });
+    var key = row.underwriter + '|' + row.startDate + '|' + row.travelOrder;
+    if (dataSeen.has(key)) return null;
+    dataSeen.add(key);
+    return row;
+  }
+
+  // Build month names safely (avoid date overflow)
+  var months = [];
+  var d = new Date();
+  d.setDate(1);
+  for (var offset = -1; offset <= 1; offset++) {
+    var m = new Date(d);
+    m.setMonth(m.getMonth() + offset);
+    months.push(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m.getMonth()] + ' ' + m.getFullYear());
+  }
+
+  // Try monthly sheets first
+  for (var i = 0; i < months.length; i++) {
+    try {
+      var resp = await fetch(APPS_SCRIPT_URL + '?month=' + encodeURIComponent(months[i]));
+      var json = await resp.json();
       if (Array.isArray(json)) {
-        json.forEach(r => {
-          const row = {};
-          COLS.forEach(c => {
-            let v = r[c.header] ?? '';
-            if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
-            if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
-            row[c.key] = v;
-          });
-          monthlyData.push(row);
+        json.forEach(function(r) {
+          var row = mapRow(r);
+          if (row) monthlyData.push(row);
         });
       }
+    } catch(e) {}
+  }
+
+  // Also fetch from main Data sheet as safety net (catches all data)
+  try {
+    var resp = await fetch(APPS_SCRIPT_URL);
+    var json = await resp.json();
+    if (Array.isArray(json)) {
+      var monthSet = new Set(months);
+      json.forEach(function(r) {
+        var dateStr = r["Start Date"] || '';
+        if (!dateStr) return;
+        var parts = dateStr.split('-');
+        var dt = parts.length === 3 ? new Date(+parts[0], +parts[1] - 1, +parts[2]) : new Date(dateStr);
+        if (isNaN(dt)) return;
+        var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.getMonth()] + ' ' + dt.getFullYear();
+        if (!monthSet.has(m)) return;
+        var row = mapRow(r);
+        if (row) monthlyData.push(row);
+      });
     }
   } catch(e) {}
+
   renderSheetSummary();
 }
 
