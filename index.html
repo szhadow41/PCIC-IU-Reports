@@ -195,7 +195,7 @@ let currentPage = 1;
 const PAGE_SIZE = 50;
 let charts = {};
 let monthlyData = [];
-let monthlySummaryLoaded = false;
+
 
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
@@ -305,7 +305,7 @@ function getFilteredData() {
   const uwFilter = document.getElementById('uwFilter')?.value || '';
   return data.filter(r => {
     if (uwFilter && r.underwriter !== uwFilter) return false;
-    if (search && !Object.values(r).join(' ').toLowerCase().includes(search)) return false;
+    if (search) { const s = [r.underwriter,r.travelOrder,r.startDate,r.endDate,r.venue,r.agency,r.purpose,r.contact,r.feedback,r.comment].join(' ').toLowerCase(); if (!s.includes(search)) return false; }
     return true;
   });
 }
@@ -328,11 +328,6 @@ function sortBy(colIdx) {
 }
 
 function saveToLocal() { localStorage.setItem('acc_data', JSON.stringify(data.map(({_id,...r})=>r))); }
-function loadFromLocal() {
-  const s = localStorage.getItem('acc_data');
-  if (s) { data = JSON.parse(s).map(r=>({...r,_id:++rowIdCounter})); return true; }
-  return false;
-}
 
 function updateField(id, field, value) {
   const row = data.find(r => r._id === id);
@@ -592,7 +587,6 @@ async function fetchMonthlySummary() {
       });
     }
   } catch(e) {}
-  monthlySummaryLoaded = true;
   renderSheetSummary();
 }
 
@@ -680,6 +674,10 @@ async function fetchFromSheet() {
         status.textContent='synced';
         showToast('Sheet is empty');
       }
+    } else {
+      data = []; rowIdCounter = 0; render(); updateUwFilter();
+      status.textContent='error';
+      showToast('Unexpected response from sheet');
     }
   } catch(e) {
     status.textContent='offline';
@@ -758,6 +756,7 @@ document.getElementById('currentMonthLabel').textContent =
   new Date().toLocaleString('en-US',{month:'long'})+' '+new Date().getFullYear();
 
 renderHeaders();
+render();
 fetchFromSheet();
 fetchMonthlySummary();
 updateCountdown();
