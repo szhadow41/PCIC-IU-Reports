@@ -94,6 +94,16 @@
   .chart-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
   .chart-box h4 { font-size: 13px; color: #1e293b; margin-bottom: 8px; font-weight: 600; }
   @media print { body { background: #fff; padding: 0; } .container { box-shadow: none; padding: 8px; } .toolbar, .pagination, .row-del, .btn-undo, .btn-check, .btn-reset, .btn-dashboard, .btn-export-uw { display: none !important; } }
+  .sheet-summary { margin-top: 20px; overflow-x: auto; }
+  .sheet-summary h3 { color: #1e293b; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  .sheet-summary table { width: 100%; border-collapse: collapse; font-size: 11px; min-width: 1200px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+  .sheet-summary th { background: #1e293b; color: #fff; padding: 8px 10px; text-align: center; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; border: none; cursor: default; white-space: nowrap; }
+  .sheet-summary td { padding: 6px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
+  .sheet-summary td.left { text-align: left; }
+  .sheet-summary tr:hover td { background: #f8fafc; }
+  .sheet-summary .yes { color: #059669; font-weight: 600; }
+  .sheet-summary .no { color: #dc2626; }
+
 </style>
 </head>
 <body>
@@ -129,6 +139,7 @@
   <div class="pagination" id="pagination"></div>
   <div class="summary" id="summary"></div>
   <div class="weekly-summary" id="weeklySummary"></div>
+  <div class="sheet-summary" id="sheetSummary"></div>
 </div>
 <div class="toast" id="toast"></div>
 <div class="modal-overlay" id="dashboardModal">
@@ -258,6 +269,7 @@ function render() {
 
   renderPagination(totalPages, filtered.length);
   renderWeeklySummary();
+  renderSheetSummary();
   document.getElementById('rowCount').textContent = filtered.length;
   document.getElementById('summary').innerHTML = `
     <span><strong>Male:</strong> ${totalMale}</span><span><strong>Female:</strong> ${totalFemale}</span>
@@ -513,6 +525,39 @@ function renderWeeklySummary() {
   html+='</table>';
 
   document.getElementById('weeklySummary').innerHTML = html;
+}
+
+function renderSheetSummary() {
+  const submitted = data.filter(r => r._submitted);
+  if (!submitted.length) { document.getElementById('sheetSummary').innerHTML = ''; return; }
+  const fields = [
+    { key: 'underwriter', h: 'Underwriter' },
+    { key: 'travelOrder', h: 'Travel Order' },
+    { key: 'date', h: 'Date' },
+    { key: 'agency', h: 'Agency' },
+    { key: 'venue', h: 'Venue' },
+    { key: 'total', h: 'Total' },
+    { key: 'brochure', h: 'Brochure' },
+    { key: 'rice', h: 'Rice' },
+    { key: 'corn', h: 'Corn' },
+    { key: 'hvc', h: 'HVC' },
+    { key: 'liv', h: 'LIV' },
+    { key: 'fsh', h: 'FSH' },
+    { key: 'nci', h: 'NCI' },
+    { key: 'tip', h: 'TIP' }
+  ];
+  let html = '<h3>Submitted Entries Summary</h3><table><tr>' + fields.map(f => '<th>' + f.h + '</th>').join('') + '</tr>';
+  submitted.forEach(r => {
+    html += '<tr>' + fields.map(f => {
+      let v = r[f.key] ?? '';
+      if (f.key === 'rice' || f.key === 'corn' || f.key === 'hvc' || f.key === 'liv' || f.key === 'fsh' || f.key === 'nci' || f.key === 'tip') {
+        v = v ? '<span class="yes">&#10003;</span>' : '<span class="no">&mdash;</span>';
+      }
+      return '<td' + (f.key==='underwriter'||f.key==='agency'||f.key==='venue' ? ' class="left"' : '') + '>' + v + '</td>';
+    }).join('') + '</tr>';
+  });
+  html += '</table>';
+  document.getElementById('sheetSummary').innerHTML = html;
 }
 
 // Dashboard
