@@ -256,7 +256,8 @@ function render() {
         cells += `<td style="text-align:center"><input type="checkbox" ${row[c.key]?'checked':''} onchange="updateField(${row._id},'${c.key}',this.checked)"></td>`;
       } else if (c.type === 'number') {
         const bg = c.key==='total' ? 'background:#eff6ff;font-weight:600;' : '';
-        cells += `<td><input type="number" min="0" step="1" data-field="${c.key}" value="${row[c.key]||''}" ${c.key==='male'||c.key==='female' ? `oninput="updateField(${row._id},'${c.key}',this.value);autoTotal(${row._id})"` : `oninput="updateField(${row._id},'${c.key}',this.value)"`} onfocus="this.select()" style="${bg}"></td>`;
+        const numVal = (row[c.key] != null && row[c.key] !== '') ? row[c.key] : '';
+        cells += `<td><input type="number" min="0" step="1" data-field="${c.key}" value="${numVal}" ${c.key==='male'||c.key==='female' ? `oninput="updateField(${row._id},'${c.key}',this.value);autoTotal(${row._id})"` : `oninput="updateField(${row._id},'${c.key}',this.value)"`} onfocus="this.select()" style="${bg}"></td>`;
       } else {
         cells += `<td><input type="text" value="${escHtml(row[c.key]||'')}" oninput="updateField(${row._id},'${c.key}',this.value)" maxlength="${c.maxlen||999}"></td>`;
       }
