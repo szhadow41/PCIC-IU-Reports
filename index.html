@@ -561,6 +561,7 @@ function renderDashboard() {
     <div class="stat-card"><div class="value">${totalEntries?Math.round(completeRows/totalEntries*100):0}%</div><div class="label">Completion Rate</div></div>
   `;
 
+  // UW chart
   const uwData = {};
   data.forEach(r => { const uw=r.underwriter||'(blank)'; uwData[uw]=(uwData[uw]||0)+1; });
   const uwLabels = Object.keys(uwData).sort();
@@ -569,6 +570,7 @@ function renderDashboard() {
     options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
   });
 
+  // Commodity chart
   const commodities = { Rice: 0, Corn: 0, HVC: 0, LIV: 0, FSH: 0, NCI: 0, TIP: 0 };
   data.forEach(r => { Object.keys(commodities).forEach(k=>{ if(r[k.toLowerCase()]) commodities[k]++; }); });
   charts.commodity = new Chart(document.getElementById('chartCommodity'), {
@@ -576,6 +578,7 @@ function renderDashboard() {
     options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }
   });
 
+  // Trend chart
   const monthData = {};
   data.forEach(r => { const m=getMonth(r.date); if(m) monthData[m]=(monthData[m]||0)+1; });
   const mLabels = Object.keys(monthData).sort();
@@ -584,6 +587,7 @@ function renderDashboard() {
     options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
   });
 
+  // Gender chart
   charts.gender = new Chart(document.getElementById('chartGender'), {
     type: 'pie', data: { labels: ['Male','Female'], datasets: [{ data: [totalMale,totalFemale], backgroundColor: ['#2563eb','#ec4899'] }] },
     options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }
