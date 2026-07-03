@@ -540,7 +540,8 @@ function renderSheetSummary() {
     { key: 'brochure', h: 'Brochure' }
   ];
   let html = '<h3>Submitted Entries Summary</h3><table><tr>' + fields.map(f => '<th>' + f.h + '</th>').join('') + '</tr>';
-  monthlyData.forEach(r => {
+  const sorted = [...monthlyData].sort((a,b) => (a.underwriter||'').localeCompare(b.underwriter||''));
+  sorted.forEach(r => {
     const month = r.date ? (['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][new Date(r.date).getMonth()] + ' ' + new Date(r.date).getFullYear()) : '';
     const date = r.date ? new Date(r.date).toLocaleDateString('en-US',{month:'short',day:'2-digit',year:'numeric'}) : '';
     html += '<tr>' + fields.map(f => {
@@ -556,25 +557,33 @@ function renderSheetSummary() {
 
 async function fetchMonthlySummary() {
   const now = new Date();
-  const month = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][now.getMonth()] + ' ' + now.getFullYear();
-  try {
-    const resp = await fetch(APPS_SCRIPT_URL + '?month=' + encodeURIComponent(month));
-    const json = await resp.json();
-    if (Array.isArray(json)) {
-      monthlyData = json.map(r => {
-        const row = {};
-        COLS.forEach(c => {
-          let v = r[c.header] ?? '';
-          if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
-          if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
-          row[c.key] = v;
+  const months = [];
+  for (let offset = -1; offset <= 1; offset++) {
+    const d = new Date(now);
+    d.setMonth(d.getMonth() + offset);
+    months.push(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getFullYear());
+  }
+  monthlyData = [];
+  for (const month of months) {
+    try {
+      const resp = await fetch(APPS_SCRIPT_URL + '?month=' + encodeURIComponent(month));
+      const json = await resp.json();
+      if (Array.isArray(json)) {
+        json.forEach(r => {
+          const row = {};
+          COLS.forEach(c => {
+            let v = r[c.header] ?? '';
+            if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
+            if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
+            row[c.key] = v;
+          });
+          monthlyData.push(row);
         });
-        return row;
-      });
-      monthlySummaryLoaded = true;
-      renderSheetSummary();
-    }
-  } catch(e) {}
+      }
+    } catch(e) {}
+  }
+  monthlySummaryLoaded = true;
+  renderSheetSummary();
 }
 
 // Dashboard
