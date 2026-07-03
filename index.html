@@ -47,7 +47,7 @@
   .pagination button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
   .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
   .pagination span { font-size: 12px; color: #64748b; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 2260px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 2365px; }
   th { background: #1e293b; color: #fff; padding: 10px 6px; border: none; text-align: center; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; position: sticky; top: 0; z-index: 2; white-space: nowrap; cursor: pointer; user-select: none; }
   th:hover { background: #334155; }
   th .sort-arrow { font-size: 10px; margin-left: 2px; opacity: 0.5; }
@@ -162,7 +162,8 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzfeoD4V3f-uuzN
 const COLS = [
   { key: 'underwriter', header: 'Underwriter', width: 130, type: 'select', required: true },
   { key: 'travelOrder', header: 'Travel Order', width: 100, type: 'text', required: true, maxlen: 30 },
-  { key: 'date', header: 'Date', width: 95, type: 'date', required: true },
+  { key: 'startDate', header: 'Start Date', width: 100, type: 'date', required: true },
+  { key: 'endDate', header: 'End Date', width: 100, type: 'date', required: true },
   { key: 'venue', header: 'Venue or Location', width: 160, type: 'text', required: true, maxlen: 100 },
   { key: 'agency', header: 'Agency/IA/Coop/etc.', width: 160, type: 'text', required: true, maxlen: 100 },
   { key: 'purpose', header: 'Purpose/Reason of Meeting', width: 200, type: 'textarea', required: true, maxlen: 200 },
@@ -183,7 +184,7 @@ const COLS = [
 ];
 
 const underwriters = ["QND","ERL","GPUB","ICG","JABU","JBB","JFM","JNL","LBB","LLM","METB","MMS","NJE","PTJ","SJGN","TMR","JSE"];
-const defaultRow = { underwriter:"", travelOrder:"", date:"", venue:"", agency:"", purpose:"", contact:"", male:"", female:"", total:"", brochure:"", rice:false, corn:false, hvc:false, liv:false, fsh:false, nci:false, tip:false, feedback:"", comment:"", _submitted:false };
+const defaultRow = { underwriter:"", travelOrder:"", startDate:"", endDate:"", venue:"", agency:"", purpose:"", contact:"", male:"", female:"", total:"", brochure:"", rice:false, corn:false, hvc:false, liv:false, fsh:false, nci:false, tip:false, feedback:"", comment:"", _submitted:false };
 
 let data = [];
 let rowIdCounter = 0;
@@ -502,8 +503,8 @@ function renderWeeklySummary() {
   const groups = {};
   data.forEach((row,idx) => {
     const uw = row.underwriter||'(blank)';
-    const month = getMonth(row.date)||'(no date)';
-    const week = getWeek(row.date)||'(no date)';
+    const month = getMonth(row.startDate)||'(no date)';
+    const week = getWeek(row.startDate)||'(no date)';
     const key = uw+'|'+month+'|'+week;
     if (!groups[key]) groups[key]={underwriter:uw,month,week,total:0,incomplete:0,details:[]};
     groups[key].total++;
@@ -529,27 +530,33 @@ function renderWeeklySummary() {
 
 function renderSheetSummary() {
   if (!monthlyData.length) { document.getElementById('sheetSummary').innerHTML = ''; return; }
-  const fields = [
-    { key: 'underwriter', h: 'Underwriter' },
-    { key: 'month', h: 'Month' },
-    { key: 'travelOrder', h: 'Travel Order' },
-    { key: 'date', h: 'Date' },
-    { key: 'agency', h: 'Agency' },
-    { key: 'venue', h: 'Venue' },
-    { key: 'total', h: 'Total' },
-    { key: 'brochure', h: 'Brochure' }
-  ];
-  let html = '<h3>Submitted Entries Summary</h3><table><tr>' + fields.map(f => '<th>' + f.h + '</th>').join('') + '</tr>';
-  const sorted = [...monthlyData].sort((a,b) => (a.underwriter||'').localeCompare(b.underwriter||''));
-  sorted.forEach(r => {
-    const month = r.date ? (['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][new Date(r.date).getMonth()] + ' ' + new Date(r.date).getFullYear()) : '';
-    const date = r.date ? new Date(r.date).toLocaleDateString('en-US',{month:'short',day:'2-digit',year:'numeric'}) : '';
-    html += '<tr>' + fields.map(f => {
-      if (f.key === 'month') return '<td>' + month + '</td>';
-      if (f.key === 'date') return '<td>' + date + '</td>';
-      let v = r[f.key] ?? '';
-      return '<td' + (f.key==='underwriter'||f.key==='agency'||f.key==='venue' ? ' class="left"' : '') + '>' + v + '</td>';
-    }).join('') + '</tr>';
+  const groups = {};
+  monthlyData.forEach(r => {
+    const uw = r.underwriter || '(blank)';
+    if (!groups[uw]) groups[uw] = { startDates: [], endDates: [], venues: new Set(), agencies: new Set(), travelOrders: [] };
+    if (r.startDate) groups[uw].startDates.push(r.startDate);
+    if (r.endDate) groups[uw].endDates.push(r.endDate);
+    if (r.venue) groups[uw].venues.add(r.venue);
+    if (r.agency) groups[uw].agencies.add(r.agency);
+    if (r.travelOrder) groups[uw].travelOrders.push(r.travelOrder);
+  });
+  const sortedUws = Object.keys(groups).sort();
+  function fmtDate(d) { if (!d) return ''; const p = d.split('-'); return p.length===3 ? parseInt(p[1])+'/'+parseInt(p[2])+'/'+p[0] : d; }
+  let html = '<h3>Submitted Entries Summary</h3><table><tr><th>Underwriter</th><th>Date</th><th>Travel Order</th><th>Agency</th><th>Venue</th></tr>';
+  sortedUws.forEach(uw => {
+    const g = groups[uw];
+    const allStarts = [...new Set(g.startDates)].sort();
+    const allEnds = [...new Set(g.endDates)].sort();
+    const overallStart = allStarts[0];
+    const overallEnd = allEnds[allEnds.length-1];
+    const dateStr = overallStart && overallEnd
+      ? fmtDate(overallStart) + (overallStart !== overallEnd ? ' - ' + fmtDate(overallEnd) : '')
+      : '';
+    html += '<tr><td class="left"><strong>' + escHtml(uw) + '</strong></td>';
+    html += '<td>' + dateStr + '</td>';
+    html += '<td class="left">' + g.travelOrders.map(t => escHtml(t)).join(', ') + '</td>';
+    html += '<td class="left">' + [...g.agencies].map(a => escHtml(a)).join('; ') + '</td>';
+    html += '<td class="left">' + [...g.venues].map(v => escHtml(v)).join('; ') + '</td></tr>';
   });
   html += '</table>';
   document.getElementById('sheetSummary').innerHTML = html;
@@ -557,31 +564,34 @@ function renderSheetSummary() {
 
 async function fetchMonthlySummary() {
   const now = new Date();
-  const months = [];
+  const months = new Set();
   for (let offset = -1; offset <= 1; offset++) {
     const d = new Date(now);
     d.setMonth(d.getMonth() + offset);
-    months.push(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getFullYear());
+    months.add(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getFullYear());
   }
-  monthlyData = [];
-  for (const month of months) {
-    try {
-      const resp = await fetch(APPS_SCRIPT_URL + '?month=' + encodeURIComponent(month));
-      const json = await resp.json();
-      if (Array.isArray(json)) {
-        json.forEach(r => {
-          const row = {};
-          COLS.forEach(c => {
-            let v = r[c.header] ?? '';
-            if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
-            if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
-            row[c.key] = v;
-          });
-          monthlyData.push(row);
+  try {
+    const resp = await fetch(APPS_SCRIPT_URL);
+    const json = await resp.json();
+    monthlyData = [];
+    if (Array.isArray(json)) {
+      json.forEach(r => {
+        const dateStr = r["Start Date"] || '';
+        if (!dateStr) return;
+        const d = new Date(dateStr);
+        const m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getFullYear();
+        if (!months.has(m)) return;
+        const row = {};
+        COLS.forEach(c => {
+          let v = r[c.header] ?? '';
+          if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
+          if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
+          row[c.key] = v;
         });
-      }
-    } catch(e) {}
-  }
+        monthlyData.push(row);
+      });
+    }
+  } catch(e) {}
   monthlySummaryLoaded = true;
   renderSheetSummary();
 }
@@ -629,7 +639,7 @@ function renderDashboard() {
   });
 
   const monthData = {};
-  data.forEach(r => { const m=getMonth(r.date); if(m) monthData[m]=(monthData[m]||0)+1; });
+  data.forEach(r => { const m=getMonth(r.startDate); if(m) monthData[m]=(monthData[m]||0)+1; });
   const mLabels = Object.keys(monthData).sort();
   charts.trend = new Chart(document.getElementById('chartTrend'), {
     type: 'line', data: { labels: mLabels, datasets: [{ label: 'Entries', data: mLabels.map(m=>monthData[m]), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.1)', fill: true, tension: 0.3 }] },
