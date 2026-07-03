@@ -533,27 +533,22 @@ function renderSheetSummary() {
   if (!monthlyData.length) { document.getElementById('sheetSummary').innerHTML = ''; return; }
   const fields = [
     { key: 'underwriter', h: 'Underwriter' },
+    { key: 'month', h: 'Month' },
     { key: 'travelOrder', h: 'Travel Order' },
     { key: 'date', h: 'Date' },
     { key: 'agency', h: 'Agency' },
     { key: 'venue', h: 'Venue' },
     { key: 'total', h: 'Total' },
-    { key: 'brochure', h: 'Brochure' },
-    { key: 'rice', h: 'Rice' },
-    { key: 'corn', h: 'Corn' },
-    { key: 'hvc', h: 'HVC' },
-    { key: 'liv', h: 'LIV' },
-    { key: 'fsh', h: 'FSH' },
-    { key: 'nci', h: 'NCI' },
-    { key: 'tip', h: 'TIP' }
+    { key: 'brochure', h: 'Brochure' }
   ];
   let html = '<h3>Submitted Entries Summary</h3><table><tr>' + fields.map(f => '<th>' + f.h + '</th>').join('') + '</tr>';
   monthlyData.forEach(r => {
+    const month = r.date ? (['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][new Date(r.date+'T00:00:00').getMonth()] + ' ' + new Date(r.date+'T00:00:00').getFullYear()) : '';
+    const date = r.date ? new Date(r.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'2-digit',year:'numeric'}) : '';
     html += '<tr>' + fields.map(f => {
+      if (f.key === 'month') return '<td>' + month + '</td>';
+      if (f.key === 'date') return '<td>' + date + '</td>';
       let v = r[f.key] ?? '';
-      if (f.key === 'rice' || f.key === 'corn' || f.key === 'hvc' || f.key === 'liv' || f.key === 'fsh' || f.key === 'nci' || f.key === 'tip') {
-        v = v ? '<span class="yes">&#10003;</span>' : '<span class="no">&mdash;</span>';
-      }
       return '<td' + (f.key==='underwriter'||f.key==='agency'||f.key==='venue' ? ' class="left"' : '') + '>' + v + '</td>';
     }).join('') + '</tr>';
   });
