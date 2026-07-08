@@ -60,7 +60,11 @@
   td textarea[readonly] { background: #f1f5f9; color: #64748b; cursor: pointer; user-select: none; }
   td textarea[readonly]:hover { background: #e2e8f0; }
   td input.error, td select.error { background: #fef2f2; }
+  td input:disabled, td select:disabled, td textarea:disabled { opacity: 0.4; cursor: not-allowed; }
   .row-num { text-align: center; color: #94a3b8; font-size: 11px; font-weight: 500; background: #f8fafc; }
+  .sticky-col { position: sticky; z-index: 1; }
+  .sticky-col-header { position: sticky; z-index: 3; }
+  tr:hover td.sticky-col { background: inherit; }
   .row-del { cursor: pointer; color: #dc2626; font-weight: bold; text-align: center; font-size: 14px; border-radius: 4px; transition: background 0.15s; }
   .row-del:hover { background: #fef2f2; }
   td.missing { background: #fef2f2 !important; }
@@ -139,6 +143,7 @@
   <div class="weekly-summary" id="weeklySummary"></div>
   <div class="sheet-summary" id="sheetSummary"></div>
 </div>
+<datalist id="travelOrderList"><option value="NO TRAVEL"></datalist>
 <div class="toast" id="toast"></div>
 <div class="modal-overlay" id="dashboardModal">
   <div class="modal-box">
@@ -201,12 +206,13 @@ function escHtml(s) { const d = document.createElement('div'); d.textContent = s
 
 function renderHeaders() {
   const tr = document.getElementById('headerRow');
-  tr.innerHTML = '<th style="width:28px;cursor:default;">#</th>';
+  tr.innerHTML = '<th class="sticky-col-header" style="width:28px;cursor:default;left:0;background:#1e293b;">#</th>';
   COLS.forEach((c, i) => {
     const arrow = sortCol === i ? (sortDir === 1 ? ' ▲' : ' ▼') : '';
     const cls = sortCol === i ? ' class="active"' : '';
     const req = c.required ? '<span class="req">*</span>' : '';
-    tr.innerHTML += `<th style="width:${c.width}px" onclick="sortBy(${i})">${c.header}${req}<span class="sort-arrow${cls}">${arrow}</span></th>`;
+    const sticky = i === 0 ? ' class="sticky-col-header" style="left:28px;background:#1e293b;width:' + c.width + 'px"' : ' style="width:' + c.width + 'px"';
+    tr.innerHTML += `<th${sticky} onclick="sortBy(${i})">${c.header}${req}<span class="sort-arrow${cls}">${arrow}</span></th>`;
   });
   tr.innerHTML += '<th style="width:70px;cursor:default;">Submit</th><th style="width:28px;cursor:default;">&times;</th>';
 }
@@ -243,23 +249,27 @@ function render() {
     const tr = document.createElement('tr');
     tr.dataset.rowId = row._id;
     const num = start + idx + 1;
-    let cells = `<td class="row-num">${num}</td>`;
-    COLS.forEach(c => {
+    const noTravel = row.travelOrder === 'NO TRAVEL';
+    let cells = `<td class="row-num sticky-col" style="left:0;background:#f8fafc;">${num}</td>`;
+    COLS.forEach((c, ci) => {
+      const stick = ci === 0 ? ' class="sticky-col" style="left:28px;background:#fff;"' : '';
+      const dis = (noTravel && c.key !== 'travelOrder' && c.key !== 'startDate' && c.key !== 'endDate' && c.key !== 'underwriter' && !c.locked) ? ' disabled' : '';
       if (c.type === 'select') {
-        cells += `<td><select onchange="updateField(${row._id},'${c.key}',this.value)">${makeOptions(underwriters,row[c.key])}</select></td>`;
+        cells += `<td${stick}><select onchange="updateField(${row._id},'${c.key}',this.value)"${dis}>${makeOptions(underwriters,row[c.key])}</select></td>`;
       } else if (c.type === 'date') {
-        cells += `<td><input type="date" value="${row[c.key]||''}" oninput="updateField(${row._id},'${c.key}',this.value)"></td>`;
+        cells += `<td><input type="date" value="${row[c.key]||''}" oninput="updateField(${row._id},'${c.key}',this.value)"${dis}></td>`;
       } else if (c.type === 'textarea') {
-        const locked = c.locked ? ' readonly' : '';
-        cells += `<td><textarea rows="1"${locked} oninput="autoResize(this);updateField(${row._id},'${c.key}',this.value)" onclick="unlockComment(this)" maxlength="${c.maxlen||999}">${escHtml(row[c.key]||'')}</textarea></td>`;
+        const locked = c.locked && !noTravel ? ' readonly' : '';
+        cells += `<td><textarea rows="1"${locked} oninput="autoResize(this);updateField(${row._id},'${c.key}',this.value)" onclick="unlockComment(this)" maxlength="${c.maxlen||999}"${dis}>${escHtml(row[c.key]||'')}</textarea></td>`;
       } else if (c.type === 'checkbox') {
-        cells += `<td style="text-align:center"><input type="checkbox" ${row[c.key]?'checked':''} onchange="updateField(${row._id},'${c.key}',this.checked)"></td>`;
+        cells += `<td style="text-align:center"><input type="checkbox" ${row[c.key]?'checked':''} onchange="updateField(${row._id},'${c.key}',this.checked)"${dis}></td>`;
       } else if (c.type === 'number') {
         const bg = c.key==='total' ? 'background:#eff6ff;font-weight:600;' : '';
         const numVal = (row[c.key] != null && row[c.key] !== '') ? row[c.key] : '';
-        cells += `<td><input type="number" min="0" step="1" data-field="${c.key}" value="${numVal}" ${c.key==='male'||c.key==='female' ? `oninput="updateField(${row._id},'${c.key}',this.value);autoTotal(${row._id})"` : `oninput="updateField(${row._id},'${c.key}',this.value)"`} onfocus="this.select()" style="${bg}"></td>`;
+        cells += `<td><input type="number" min="0" step="1" data-field="${c.key}" value="${numVal}" ${c.key==='male'||c.key==='female' ? `oninput="updateField(${row._id},'${c.key}',this.value);autoTotal(${row._id})"` : `oninput="updateField(${row._id},'${c.key}',this.value)"`} onfocus="this.select()" style="${bg}"${dis}></td>`;
       } else {
-        cells += `<td><input type="text" value="${escHtml(row[c.key]||'')}" oninput="updateField(${row._id},'${c.key}',this.value)" maxlength="${c.maxlen||999}"></td>`;
+        const list = c.key === 'travelOrder' ? ' list="travelOrderList"' : '';
+        cells += `<td><input type="text"${list} value="${escHtml(row[c.key]||'')}" oninput="updateField(${row._id},'${c.key}',this.value)" maxlength="${c.maxlen||999}"${dis}></td>`;
       }
     });
     const submitted = row._submitted;
@@ -271,6 +281,7 @@ function render() {
 
   renderPagination(totalPages, filtered.length);
   renderWeeklySummary();
+  fetchMonthlySummary();
   renderSheetSummary();
   document.getElementById('rowCount').textContent = filtered.length;
   document.getElementById('summary').innerHTML = `
@@ -332,7 +343,22 @@ function saveToLocal() { localStorage.setItem('acc_data', JSON.stringify(data.ma
 
 function updateField(id, field, value) {
   const row = data.find(r => r._id === id);
-  if (row) { row[field] = value; saveToLocal(); }
+  if (row) {
+    const prev = row[field];
+    row[field] = value;
+    if (field === 'travelOrder' && prev !== value && (value === 'NO TRAVEL' || prev === 'NO TRAVEL')) {
+      if (value === 'NO TRAVEL') {
+        COLS.forEach(c => {
+          if (c.key !== 'travelOrder' && c.key !== 'startDate' && c.key !== 'endDate' && c.key !== 'underwriter') {
+            if (c.type === 'checkbox') row[c.key] = false;
+            else row[c.key] = '';
+          }
+        });
+      }
+      saveToLocal(); render(); return;
+    }
+    saveToLocal();
+  }
 }
 
 function updateSummary() {
@@ -456,6 +482,7 @@ function showToast(msg) {
 
 // Validation
 function getMissingFields(row) {
+  if (row.travelOrder === 'NO TRAVEL') return [];
   return COLS.filter(c => c.required).filter(c => !row[c.key] || (typeof row[c.key]==='string' && !row[c.key].trim()));
 }
 
@@ -569,23 +596,7 @@ function renderSheetSummary() {
 
 async function fetchMonthlySummary() {
   monthlyData = [];
-  var dataSeen = new Set();
 
-  function mapRow(r) {
-    var row = {};
-    COLS.forEach(function(c) {
-      var v = r[c.header] ?? '';
-      if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
-      if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
-      row[c.key] = v;
-    });
-    var key = row.underwriter + '|' + row.startDate + '|' + row.travelOrder;
-    if (dataSeen.has(key)) return null;
-    dataSeen.add(key);
-    return row;
-  }
-
-  // Build month names safely (avoid date overflow)
   var months = [];
   var d = new Date();
   d.setDate(1);
@@ -594,42 +605,17 @@ async function fetchMonthlySummary() {
     m.setMonth(m.getMonth() + offset);
     months.push(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m.getMonth()] + ' ' + m.getFullYear());
   }
+  var monthSet = new Set(months);
 
-  // Try monthly sheets first
-  for (var i = 0; i < months.length; i++) {
-    try {
-      var resp = await fetch(APPS_SCRIPT_URL + '?month=' + encodeURIComponent(months[i]));
-      var json = await resp.json();
-      if (Array.isArray(json)) {
-        json.forEach(function(r) {
-          var row = mapRow(r);
-          if (row) monthlyData.push(row);
-        });
-      }
-    } catch(e) {}
-  }
-
-  // Also fetch from main Data sheet as safety net (catches all data)
-  try {
-    var resp = await fetch(APPS_SCRIPT_URL);
-    var json = await resp.json();
-    if (Array.isArray(json)) {
-      var monthSet = new Set(months);
-      json.forEach(function(r) {
-        var dateStr = r["Start Date"] || '';
-        if (!dateStr) return;
-        var parts = dateStr.split('-');
-        var dt = parts.length === 3 ? new Date(+parts[0], +parts[1] - 1, +parts[2]) : new Date(dateStr);
-        if (isNaN(dt)) return;
-        var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.getMonth()] + ' ' + dt.getFullYear();
-        if (!monthSet.has(m)) return;
-        var row = mapRow(r);
-        if (row) monthlyData.push(row);
-      });
-    }
-  } catch(e) {}
-
-  renderSheetSummary();
+  data.forEach(function(r) {
+    if (!r.startDate) return;
+    var parts = r.startDate.split('-');
+    var dt = parts.length === 3 ? new Date(+parts[0], +parts[1] - 1, +parts[2]) : new Date(r.startDate);
+    if (isNaN(dt)) return;
+    var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.getMonth()] + ' ' + dt.getFullYear();
+    if (!monthSet.has(m)) return;
+    monthlyData.push(r);
+  });
 }
 
 // Dashboard
@@ -732,6 +718,15 @@ async function submitRow(id) {
   const row = data.find(r => r._id === id);
   if (!row || row._submitted) return;
 
+  const missing = getMissingFields(row);
+  if (missing.length) {
+    const names = missing.map(f => f.header).join(', ');
+    if (!confirm('Missing required field(s): ' + names + '\n\nSubmit anyway?')) {
+      showToast('Submit cancelled');
+      return;
+    }
+  }
+
   const btn = document.querySelector(`tr[data-row-id="${id}"] .btn-row-submit`);
   if (btn) { btn.disabled = true; btn.textContent = '...'; }
 
@@ -796,7 +791,6 @@ document.getElementById('currentMonthLabel').textContent =
 renderHeaders();
 render();
 fetchFromSheet();
-fetchMonthlySummary();
 updateCountdown();
 setInterval(updateCountdown, 1000);
 </script>
