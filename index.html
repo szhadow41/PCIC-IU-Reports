@@ -720,11 +720,8 @@ async function submitRow(id) {
 
   const missing = getMissingFields(row);
   if (missing.length) {
-    const names = missing.map(f => f.header).join(', ');
-    if (!confirm('Missing required field(s): ' + names + '\n\nSubmit anyway?')) {
-      showToast('Submit cancelled');
-      return;
-    }
+    showToast('Fill in: ' + missing.map(f => f.header).join(', '));
+    return;
   }
 
   const btn = document.querySelector(`tr[data-row-id="${id}"] .btn-row-submit`);
