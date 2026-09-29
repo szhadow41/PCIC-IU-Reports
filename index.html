@@ -100,6 +100,8 @@
   .dash-table-wrap tr.total-row td:first-child { background: #f1f5f9; }
   .dash-table-wrap tr:hover td:first-child { background: #f8fafc; }
   .dash-table-wrap tr.total-row:hover td:first-child { background: #f1f5f9; }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid #e2e8f0; border-top-color: #2563eb; border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   @media print { body { background: #fff; padding: 0; } .container { box-shadow: none; padding: 8px; } .toolbar, .pagination, .row-del, .btn-undo, .btn-check, .btn-reset, .btn-dashboard { display: none !important; } }
   .sheet-summary { margin-top: 20px; overflow-x: auto; }
   .sheet-summary h3 { color: #1e293b; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
@@ -193,9 +195,12 @@ let sortDir = 1;
 let currentPage = 1;
 const PAGE_SIZE = 50;
 let prevMonthData = [];
-let prevMonthLabel = '';
 let sheetMonth = '';
 let dashData = [];
+let sheetLoading = false;
+let sheetError = false;
+let sheetReqSeq = 0;
+let sheetCache = {};
 
 
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -538,11 +543,6 @@ function renderWeeklySummary() {
   document.getElementById('weeklySummary').innerHTML = html;
 }
 
-function julyLabel() {
-  const now = new Date();
-  return 'Jul ' + (now.getMonth() < 6 ? now.getFullYear() - 1 : now.getFullYear());
-}
-
 function sheetMonthOptions() {
   const arr = [];
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -555,26 +555,48 @@ function sheetMonthOptions() {
   return arr;
 }
 
+async function loadSheetMonth(label) {
+  const id = ++sheetReqSeq;
+  if (sheetCache[label]) {
+    prevMonthData = sheetCache[label].rows;
+    sheetError = sheetCache[label].error;
+    sheetLoading = false;
+    renderSheetSummary();
+    return;
+  }
+  sheetLoading = true; sheetError = false;
+  renderSheetSummary();
+  const res = await fetchSheetMonth(label);
+  sheetCache[label] = res;
+  if (id !== sheetReqSeq) return;
+  prevMonthData = res.rows;
+  sheetError = res.error;
+  sheetLoading = false;
+  renderSheetSummary();
+}
 async function sheetMonthChanged() {
   const mSel = document.getElementById('sheetMonthFilter');
-  sheetMonth = (mSel && mSel.value) || prevMonthLabel;
-  prevMonthData = await fetchSheetMonth(sheetMonth);
-  renderSheetSummary();
+  sheetMonth = (mSel && mSel.value) || '';
+  if (!sheetMonth) { prevMonthData = []; sheetError = false; sheetLoading = false; renderSheetSummary(); return; }
+  delete sheetCache[sheetMonth];
+  loadSheetMonth(sheetMonth);
 }
 
 function renderSheetSummary() {
   const mSel = document.getElementById('sheetMonthFilter');
-  if (mSel && mSel.value) sheetMonth = mSel.value;
-  if (!sheetMonth) sheetMonth = julyLabel();
+  if (mSel) sheetMonth = mSel.value;
   const sheetSel = document.getElementById('sheetUwFilter');
   let sheetUw = sheetSel ? sheetSel.value : '';
   const sheetUws = [...new Set(prevMonthData.map(r => r.underwriter).filter(Boolean))].sort();
   if (sheetUw && sheetUws.indexOf(sheetUw) === -1) sheetUw = '';
   const monthOpts = sheetMonthOptions();
   if (sheetMonth && monthOpts.indexOf(sheetMonth) === -1) monthOpts.unshift(sheetMonth);
-  const monthSelHtml = '<select id="sheetMonthFilter" onchange="sheetMonthChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;">' + monthOpts.map(m => '<option value="' + m + '"' + (m === sheetMonth ? ' selected' : '') + '>' + m + '</option>').join('') + '</select>';
+  const monthSelHtml = '<select id="sheetMonthFilter" onchange="sheetMonthChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">Select month…</option>' + monthOpts.map(m => '<option value="' + m + '"' + (m === sheetMonth ? ' selected' : '') + '>' + m + '</option>').join('') + '</select>';
   const sheetSelHtml = '<select id="sheetUwFilter" onchange="renderSheetSummary()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">All</option>' + sheetUws.map(u => '<option value="' + escHtml(u) + '"' + (u === sheetUw ? ' selected' : '') + '>' + escHtml(u) + '</option>').join('') + '</select>';
   const sheetHead = '<h3>Previous Month Summary &mdash; ' + monthSelHtml + ' ' + sheetSelHtml + '</h3>';
+  if (!sheetMonth) { document.getElementById('sheetSummary').innerHTML = sheetHead + '<p>Select a month to load the summary.</p>'; return; }
+  if (sheetLoading) { document.getElementById('sheetSummary').innerHTML = sheetHead + '<p><span class="spin"></span>Loading ' + escHtml(sheetMonth) + '…</p>'; return; }
+  if (sheetError && !prevMonthData.length) { document.getElementById('sheetSummary').innerHTML = sheetHead + '<p>Could not load ' + escHtml(sheetMonth) + '. Check your connection.</p><p><button onclick="sheetMonthChanged()" style="font-size:12px;padding:4px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#2563eb;color:#fff;cursor:pointer;font-family:inherit;">Reconnect</button></p>'; return; }
   if (!prevMonthData.length) { document.getElementById('sheetSummary').innerHTML = sheetHead + '<p>No submitted entries for ' + escHtml(sheetMonth) + '.</p>'; return; }
   const groups = {};
   const sheetSrc = sheetUw ? prevMonthData.filter(r => r.underwriter === sheetUw) : prevMonthData;
@@ -601,37 +623,31 @@ function renderSheetSummary() {
 }
 
 async function fetchSheetMonth(label) {
+  const mapRows = (json) => json.map(r => {
+    const row = {...defaultRow};
+    COLS.forEach(c => {
+      let v = r[c.header] ?? '';
+      if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
+      if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
+      row[c.key] = v;
+    });
+    return row;
+  });
+  const localFallback = () => data.filter(r => getMonth(r.startDate) === label);
   try {
     const resp = await fetch(APPS_SCRIPT_URL + '?month=' + encodeURIComponent(label));
     const json = await resp.json();
-    if (Array.isArray(json) && json.length) {
-      return json.map(r => {
-        const row = {...defaultRow};
-        COLS.forEach(c => {
-          let v = r[c.header] ?? '';
-          if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
-          if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
-          row[c.key] = v;
-        });
-        return row;
-      });
-    }
-  } catch(e) {}
-  return data.filter(r => getMonth(r.startDate) === label);
+    if (Array.isArray(json)) return { rows: json.length ? mapRows(json) : localFallback(), error: false };
+    return { rows: localFallback(), error: true };
+  } catch(e) {
+    return { rows: localFallback(), error: true };
+  }
 }
 
 async function fetchMonthlySummary() {
-  prevMonthData = [];
-
-  var pd = new Date();
-  pd.setDate(1);
-  pd.setMonth(pd.getMonth() - 1);
-  prevMonthLabel = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][pd.getMonth()] + ' ' + pd.getFullYear();
-
-  // Source selected-month rows from the monthly sheet on the server
-  if (!sheetMonth) sheetMonth = julyLabel();
-  prevMonthData = await fetchSheetMonth(sheetMonth);
-  renderSheetSummary();
+  // Source selected-month rows from the monthly sheet on the server (only after user picks a month)
+  if (!sheetMonth) { prevMonthData = []; sheetError = false; sheetLoading = false; renderSheetSummary(); return; }
+  loadSheetMonth(sheetMonth);
 }
 
 // Dashboard: year-to-date accomplishment per underwriter from monthly sheets
@@ -641,7 +657,7 @@ async function openDashboard() {
   document.getElementById('dashRange').textContent = '';
   const labels = sheetMonthOptions();
   const results = await Promise.all(labels.map(l => fetchSheetMonth(l)));
-  dashData = results.flat();
+  dashData = results.map(r => r.rows).flat();
   renderDashboard();
 }
 function closeDashboard() {
@@ -706,6 +722,7 @@ async function fetchFromSheet() {
           return {...row,_id:++rowIdCounter};
         });
         autoTotalAll(); updateUwFilter(); render();
+        sheetCache = {};
         status.textContent='synced'; saveToLocal();
         showToast('Loaded '+data.length+' row(s) from Google Sheets');
       } else {
@@ -754,6 +771,7 @@ async function submitRow(id) {
       body:JSON.stringify([obj])
     });
     row._submitted = true;
+    sheetCache = {};
     saveToLocal();
     if (btn) { btn.textContent = 'Complete'; btn.classList.add('submitted'); btn.disabled = true; }
     showToast('Row submitted');
