@@ -188,7 +188,7 @@ const COLS = [
   { key: 'comment', header: "Supervisor's Comment", width: 200, type: 'textarea', maxlen: 300, locked: true }
 ];
 
-const underwriters = ["QND","ERL","GPUB","ICG","JABU","JBB","JFM","JNL","LBB","LLM","METB","MMS","NJE","PTJ","SJGN","TMR","JSE"];
+const underwriters = ["QND","ERL","GPUB","ICG","JABU","JBB","JFM","JNL","LBB","LLM","METB","MMS","NJE","PTJ","SJGN","TMR","JSE","WKG"];
 const defaultRow = { underwriter:"", travelOrder:"", startDate:"", endDate:"", venue:"", agency:"", purpose:"", contact:"", male:"", female:"", total:"", brochure:"", rice:false, corn:false, hvc:false, liv:false, fsh:false, nci:false, tip:false, feedback:"", comment:"", _submitted:false };
 
 let data = [];
@@ -200,6 +200,9 @@ let currentPage = 1;
 const PAGE_SIZE = 50;
 let charts = {};
 let monthlyData = [];
+let prevMonthData = [];
+let prevMonthLabel = '';
+let sheetMonth = '';
 
 
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -398,7 +401,7 @@ function autoTotalAll() {
 function unlockComment(el) {
   if (!el.hasAttribute('readonly')) return;
   const pw = prompt('Enter admin password to unlock Supervisor\'s Comment:');
-  if (pw === 'admin4184') {
+  if (pw === 'Zareenah7') {
     el.removeAttribute('readonly');
     el.style.background = '';
     el.style.color = '';
@@ -462,7 +465,7 @@ function downloadFile(content, filename) {
 
 function promptReset() {
   const pwd = prompt('Enter password to reset:');
-  if (pwd !== 'admin4184') { if (pwd !== null) showToast('Incorrect password'); return; }
+  if (pwd !== 'Zareenah7') { if (pwd !== null) showToast('Incorrect password'); return; }
   if (confirm('Are you sure? This will clear all data entries.')) {
     localStorage.removeItem('acc_data');
     data = []; rowIdCounter = 0;
@@ -531,71 +534,134 @@ function validateAll() {
   else showToast('All rows are complete!');
 }
 
+function parseISODate(s) {
+  if (!s) return null;
+  const parts = String(s).split('-');
+  const d = parts.length === 3 ? new Date(+parts[0], +parts[1] - 1, +parts[2]) : new Date(s);
+  return isNaN(d) ? null : d;
+}
+
+function daysTraveled(startStr, endStr) {
+  const start = parseISODate(startStr);
+  if (!start) return 0;
+  const end = parseISODate(endStr) || start;
+  const diff = Math.round((end - start) / 86400000) + 1;
+  return diff < 0 ? 0 : diff;
+}
+
 function renderWeeklySummary() {
+  const travelSel = document.getElementById('travelUwFilter');
+  let travelUw = travelSel ? travelSel.value : '';
+  const travelUws = [...new Set(data.map(r => r.underwriter).filter(Boolean))].sort();
+  if (travelUw && travelUws.indexOf(travelUw) === -1) travelUw = '';
+  const travelSelHtml = '<select id="travelUwFilter" onchange="renderWeeklySummary()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">All</option>' + travelUws.map(u => '<option value="' + escHtml(u) + '"' + (u === travelUw ? ' selected' : '') + '>' + escHtml(u) + '</option>').join('') + '</select>';
+  const travelHead = '<h3>Travel Summary ' + travelSelHtml + '</h3>';
   const groups = {};
-  data.forEach((row,idx) => {
+  const travelSrc = travelUw ? data.filter(r => r.underwriter === travelUw) : data;
+  travelSrc.forEach((row) => {
+    if (row.travelOrder === 'NO TRAVEL') return;
     const uw = row.underwriter||'(blank)';
     const month = getMonth(row.startDate)||'(no date)';
-    const week = getWeek(row.startDate)||'(no date)';
-    const key = uw+'|'+month+'|'+week;
-    if (!groups[key]) groups[key]={underwriter:uw,month,week,total:0,incomplete:0,details:[]};
-    groups[key].total++;
-    const missing = getMissingFields(row);
-    if (missing.length) { groups[key].incomplete++; groups[key].details.push(`Row ${idx+1}: ${missing.map(f=>f.header).join(', ')}`); }
+    const to = (row.travelOrder && String(row.travelOrder).trim()) || '(no travel order)';
+    const key = uw+'|'+month+'|'+to;
+    if (!groups[key]) groups[key]={underwriter:uw,month,travelOrder:to,days:0};
+    groups[key].days += daysTraveled(row.startDate, row.endDate);
   });
   const sorted = Object.values(groups).sort((a,b)=>{
     if(a.underwriter!==b.underwriter) return a.underwriter.localeCompare(b.underwriter);
     if(a.month!==b.month) return a.month.localeCompare(b.month);
-    return a.week.localeCompare(b.week);
+    return a.travelOrder.localeCompare(b.travelOrder);
   });
 
-  let html = '<h3>Incomplete Summary</h3><table><tr><th>Underwriter</th><th>Month</th><th>Week</th><th>Total</th><th>Incomplete</th><th>Missing Fields</th></tr>';
-  sorted.filter(g=>g.incomplete).forEach(g=>{
-    const s = g.incomplete ? `<span class="ws-warn">${g.incomplete}</span>` : '<span class="ws-ok">0</span>';
-    const d = g.details.length ? g.details.join('<br>') : '<span class="ws-ok">&mdash;</span>';
-    html+=`<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${g.month}</td><td>${g.week}</td><td>${g.total}</td><td>${s}</td><td style="font-size:11px;text-align:left;">${d}</td></tr>`;
+  let html = travelHead + '<table><tr><th>Underwriter</th><th>Month</th><th>Travel Order</th><th>Days Traveled</th></tr>';
+  sorted.forEach(g=>{
+    html+=`<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${escHtml(g.month)}</td><td>${escHtml(g.travelOrder)}</td><td>${g.days}</td></tr>`;
   });
   html+='</table>';
 
   document.getElementById('weeklySummary').innerHTML = html;
 }
 
+function sheetMonthOptions() {
+  const arr = [];
+  const d = new Date();
+  d.setDate(1);
+  for (let i = 0; i < 12; i++) {
+    const m = new Date(d);
+    m.setMonth(m.getMonth() - i);
+    arr.push(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m.getMonth()] + ' ' + m.getFullYear());
+  }
+  return arr;
+}
+
+async function sheetMonthChanged() {
+  const mSel = document.getElementById('sheetMonthFilter');
+  sheetMonth = (mSel && mSel.value) || prevMonthLabel;
+  prevMonthData = await fetchSheetMonth(sheetMonth);
+  renderSheetSummary();
+}
+
 function renderSheetSummary() {
-  if (!monthlyData.length) { document.getElementById('sheetSummary').innerHTML = ''; return; }
+  const mSel = document.getElementById('sheetMonthFilter');
+  if (mSel && mSel.value) sheetMonth = mSel.value;
+  if (!sheetMonth) sheetMonth = prevMonthLabel;
+  const sheetSel = document.getElementById('sheetUwFilter');
+  let sheetUw = sheetSel ? sheetSel.value : '';
+  const sheetUws = [...new Set(prevMonthData.map(r => r.underwriter).filter(Boolean))].sort();
+  if (sheetUw && sheetUws.indexOf(sheetUw) === -1) sheetUw = '';
+  const monthOpts = sheetMonthOptions();
+  if (sheetMonth && monthOpts.indexOf(sheetMonth) === -1) monthOpts.unshift(sheetMonth);
+  const monthSelHtml = '<select id="sheetMonthFilter" onchange="sheetMonthChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;">' + monthOpts.map(m => '<option value="' + m + '"' + (m === sheetMonth ? ' selected' : '') + '>' + m + '</option>').join('') + '</select>';
+  const sheetSelHtml = '<select id="sheetUwFilter" onchange="renderSheetSummary()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">All</option>' + sheetUws.map(u => '<option value="' + escHtml(u) + '"' + (u === sheetUw ? ' selected' : '') + '>' + escHtml(u) + '</option>').join('') + '</select>';
+  const sheetHead = '<h3>Submitted Entries Summary &mdash; ' + monthSelHtml + ' ' + sheetSelHtml + '</h3>';
+  if (!prevMonthData.length) { document.getElementById('sheetSummary').innerHTML = sheetHead + '<p>No submitted entries for ' + escHtml(sheetMonth) + '.</p>'; return; }
   const groups = {};
-  monthlyData.forEach(r => {
+  const sheetSrc = sheetUw ? prevMonthData.filter(r => r.underwriter === sheetUw) : prevMonthData;
+  sheetSrc.forEach(r => {
+    if (r.travelOrder === 'NO TRAVEL') return;
     const uw = r.underwriter || '(blank)';
-    if (!groups[uw]) groups[uw] = { startDates: [], endDates: [], venues: new Set(), agencies: new Set(), travelOrders: [] };
-    if (r.startDate) groups[uw].startDates.push(r.startDate);
-    if (r.endDate) groups[uw].endDates.push(r.endDate);
-    if (r.venue) groups[uw].venues.add(r.venue);
-    if (r.agency) groups[uw].agencies.add(r.agency);
-    if (r.travelOrder) groups[uw].travelOrders.push(r.travelOrder);
+    const month = getMonth(r.startDate) || '(no date)';
+    const to = (r.travelOrder && String(r.travelOrder).trim()) || '(no travel order)';
+    const key = uw + '|' + month + '|' + to;
+    if (!groups[key]) groups[key] = { underwriter: uw, month: month, travelOrder: to, days: 0 };
+    groups[key].days += daysTraveled(r.startDate, r.endDate);
   });
-  const sortedUws = Object.keys(groups).sort();
-  function fmtDate(d) { if (!d) return ''; const p = d.split('-'); return p.length===3 ? parseInt(p[1])+'/'+parseInt(p[2])+'/'+p[0] : d; }
-  let html = '<h3>Submitted Entries Summary</h3><table><tr><th>Underwriter</th><th>Date</th><th>Travel Order</th><th>Agency</th><th>Venue</th></tr>';
-  sortedUws.forEach(uw => {
-    const g = groups[uw];
-    const allStarts = [...new Set(g.startDates)].sort();
-    const allEnds = [...new Set(g.endDates)].sort();
-    const overallStart = allStarts[0];
-    const overallEnd = allEnds[allEnds.length-1];
-    const dateStr = overallStart && overallEnd
-      ? fmtDate(overallStart) + (overallStart !== overallEnd ? ' - ' + fmtDate(overallEnd) : '')
-      : '';
-    html += '<tr><td class="left"><strong>' + escHtml(uw) + '</strong></td>';
-    html += '<td>' + dateStr + '</td>';
-    html += '<td class="left">' + g.travelOrders.map(t => escHtml(t)).join(', ') + '</td>';
-    html += '<td class="left">' + [...g.agencies].map(a => escHtml(a)).join('; ') + '</td>';
-    html += '<td class="left">' + [...g.venues].map(v => escHtml(v)).join('; ') + '</td></tr>';
+  const sorted = Object.values(groups).sort((a, b) => {
+    if (a.underwriter !== b.underwriter) return a.underwriter.localeCompare(b.underwriter);
+    if (a.month !== b.month) return a.month.localeCompare(b.month);
+    return a.travelOrder.localeCompare(b.travelOrder);
+  });
+  let html = sheetHead + '<table><tr><th>Underwriter</th><th>Month</th><th>Travel Order</th><th>Days Traveled</th></tr>';
+  sorted.forEach(g => {
+    html += `<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${escHtml(g.month)}</td><td>${escHtml(g.travelOrder)}</td><td>${g.days}</td></tr>`;
   });
   html += '</table>';
   document.getElementById('sheetSummary').innerHTML = html;
 }
 
+async function fetchSheetMonth(label) {
+  try {
+    const resp = await fetch(APPS_SCRIPT_URL + '?month=' + encodeURIComponent(label));
+    const json = await resp.json();
+    if (Array.isArray(json) && json.length) {
+      return json.map(r => {
+        const row = {...defaultRow};
+        COLS.forEach(c => {
+          let v = r[c.header] ?? '';
+          if (c.type==='checkbox') v = v==='Yes'||v===true||v==='TRUE';
+          if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
+          row[c.key] = v;
+        });
+        return row;
+      });
+    }
+  } catch(e) {}
+  return data.filter(r => getMonth(r.startDate) === label);
+}
+
 async function fetchMonthlySummary() {
   monthlyData = [];
+  prevMonthData = [];
 
   var months = [];
   var d = new Date();
@@ -607,6 +673,11 @@ async function fetchMonthlySummary() {
   }
   var monthSet = new Set(months);
 
+  var pd = new Date();
+  pd.setDate(1);
+  pd.setMonth(pd.getMonth() - 1);
+  prevMonthLabel = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][pd.getMonth()] + ' ' + pd.getFullYear();
+
   data.forEach(function(r) {
     if (!r.startDate) return;
     var parts = r.startDate.split('-');
@@ -616,6 +687,11 @@ async function fetchMonthlySummary() {
     if (!monthSet.has(m)) return;
     monthlyData.push(r);
   });
+
+  // Source selected-month rows from the monthly sheet on the server
+  if (!sheetMonth) sheetMonth = prevMonthLabel;
+  prevMonthData = await fetchSheetMonth(sheetMonth);
+  renderSheetSummary();
 }
 
 // Dashboard
