@@ -90,6 +90,13 @@
   .modal-box h3 { color: #1e293b; margin-bottom: 16px; font-size: 16px; font-weight: 600; }
   .modal-close { float: right; background: none; border: none; font-size: 20px; cursor: pointer; color: #94a3b8; padding: 4px 8px; border-radius: 4px; }
   .modal-close:hover { background: #f1f5f9; color: #1e293b; }
+  .dash-table-wrap { overflow-x: auto; }
+  .dash-table-wrap table { width: 100%; border-collapse: collapse; font-size: 11px; min-width: 1100px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+  .dash-table-wrap th { background: #1e293b; color: #fff; padding: 8px 10px; text-align: center; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; }
+  .dash-table-wrap td { padding: 6px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
+  .dash-table-wrap td.left { text-align: left; }
+  .dash-table-wrap tr:hover td { background: #f8fafc; }
+  .dash-table-wrap tr.total-row td { background: #f1f5f9; font-weight: 700; }
   .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
   .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; }
   .stat-card .value { font-size: 28px; font-weight: 700; color: #1e293b; }
@@ -148,16 +155,8 @@
 <div class="modal-overlay" id="dashboardModal">
   <div class="modal-box">
     <button class="modal-close" onclick="closeDashboard()">&times;</button>
-    <h3>Dashboard</h3>
-    <div class="stats-grid" id="statsGrid"></div>
-    <div class="chart-row">
-      <div class="chart-box"><h4>Entries per Underwriter</h4><canvas id="chartUW"></canvas></div>
-      <div class="chart-box"><h4>Commodities Breakdown</h4><canvas id="chartCommodity"></canvas></div>
-    </div>
-    <div class="chart-row" style="margin-top:12px;">
-      <div class="chart-box"><h4>Monthly Trend</h4><canvas id="chartTrend"></canvas></div>
-      <div class="chart-box"><h4>Gender Distribution</h4><canvas id="chartGender"></canvas></div>
-    </div>
+    <h3>Accomplishment per Underwriter <span id="dashRange" style="font-size:11px;font-weight:400;color:#64748b;margin-left:6px;"></span></h3>
+    <div class="dash-table-wrap" id="dashBody"><p>Loading accomplishment data…</p></div>
   </div>
 </div>
 
@@ -203,6 +202,7 @@ let monthlyData = [];
 let prevMonthData = [];
 let prevMonthLabel = '';
 let sheetMonth = '';
+let dashData = [];
 
 
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -694,9 +694,14 @@ async function fetchMonthlySummary() {
   renderSheetSummary();
 }
 
-// Dashboard
-function openDashboard() {
+// Dashboard: year-to-date accomplishment per underwriter from monthly sheets
+async function openDashboard() {
   document.getElementById('dashboardModal').classList.add('show');
+  document.getElementById('dashBody').innerHTML = '<p>Loading accomplishment data…</p>';
+  document.getElementById('dashRange').textContent = '';
+  const labels = sheetMonthOptions();
+  const results = await Promise.all(labels.map(l => fetchSheetMonth(l)));
+  dashData = results.flat();
   renderDashboard();
 }
 function closeDashboard() {
@@ -706,48 +711,41 @@ function closeDashboard() {
 }
 
 function renderDashboard() {
-  const totalEntries = data.length;
-  const totalMale = data.reduce((s,r)=>s+(parseInt(r.male)||0),0);
-  const totalFemale = data.reduce((s,r)=>s+(parseInt(r.female)||0),0);
-  const totalBrochure = data.reduce((s,r)=>s+(parseInt(r.brochure)||0),0);
-  const completeRows = data.filter(r=>getMissingFields(r).length===0).length;
-  const uwCount = [...new Set(data.map(r=>r.underwriter).filter(Boolean))].length;
-
-  document.getElementById('statsGrid').innerHTML = `
-    <div class="stat-card"><div class="value">${totalEntries}</div><div class="label">Total Entries</div></div>
-    <div class="stat-card"><div class="value">${uwCount}</div><div class="label">Active Underwriters</div></div>
-    <div class="stat-card"><div class="value">${totalMale+totalFemale}</div><div class="label">Total Persons</div></div>
-    <div class="stat-card"><div class="value">${totalBrochure}</div><div class="label">Brochures Distributed</div></div>
-    <div class="stat-card"><div class="value">${totalEntries?Math.round(completeRows/totalEntries*100):0}%</div><div class="label">Completion Rate</div></div>
-  `;
-
-  const uwData = {};
-  data.forEach(r => { const uw=r.underwriter||'(blank)'; uwData[uw]=(uwData[uw]||0)+1; });
-  const uwLabels = Object.keys(uwData).sort();
-  charts.uw = new Chart(document.getElementById('chartUW'), {
-    type: 'bar', data: { labels: uwLabels, datasets: [{ label: 'Entries', data: uwLabels.map(u=>uwData[u]), backgroundColor: '#2563eb' }] },
-    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  const labels = sheetMonthOptions();
+  document.getElementById('dashRange').textContent = labels.length ? '(' + labels[labels.length - 1] + ' – ' + labels[0] + ')' : '';
+  const groups = {};
+  dashData.forEach(r => {
+    const uw = (r.underwriter && String(r.underwriter).trim()) || '(blank)';
+    if (!groups[uw]) groups[uw] = { underwriter: uw, farmers: 0, brochure: 0, travelOrders: new Set(), days: 0, rice: 0, corn: 0, hvc: 0, liv: 0, fsh: 0, nci: 0, tip: 0 };
+    const g = groups[uw];
+    g.farmers += (parseInt(r.male) || 0) + (parseInt(r.female) || 0);
+    g.brochure += parseInt(r.brochure) || 0;
+    if (r.travelOrder && r.travelOrder !== 'NO TRAVEL') {
+      g.travelOrders.add(String(r.travelOrder).trim());
+      g.days += daysTraveled(r.startDate, r.endDate);
+    }
+    if (r.rice) g.rice++;
+    if (r.corn) g.corn++;
+    if (r.hvc) g.hvc++;
+    if (r.liv) g.liv++;
+    if (r.fsh) g.fsh++;
+    if (r.nci) g.nci++;
+    if (r.tip) g.tip++;
   });
-
-  const commodities = { Rice: 0, Corn: 0, HVC: 0, LIV: 0, FSH: 0, NCI: 0, TIP: 0 };
-  data.forEach(r => { Object.keys(commodities).forEach(k=>{ if(r[k.toLowerCase()]) commodities[k]++; }); });
-  charts.commodity = new Chart(document.getElementById('chartCommodity'), {
-    type: 'doughnut', data: { labels: Object.keys(commodities), datasets: [{ data: Object.values(commodities), backgroundColor: ['#2563eb','#059669','#d97706','#dc2626','#7c3aed','#0891b2','#be123c'] }] },
-    options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }
+  const rows = Object.values(groups).sort((a, b) => a.underwriter.localeCompare(b.underwriter));
+  const body = document.getElementById('dashBody');
+  if (!rows.length) { body.innerHTML = '<p>No submitted data found in the monthly sheets for this period.</p>'; return; }
+  const t = { farmers: 0, brochure: 0, travelOrders: 0, days: 0, rice: 0, corn: 0, hvc: 0, liv: 0, fsh: 0, nci: 0, tip: 0 };
+  let html = '<table><tr><th>Underwriter</th><th>Farmers</th><th>Brochures</th><th>Travel Orders</th><th>Days Traveled</th><th>Rice</th><th>Corn</th><th>HVC</th><th>LIV</th><th>FSH</th><th>NCI</th><th>TIP</th></tr>';
+  rows.forEach(g => {
+    const to = g.travelOrders.size;
+    t.farmers += g.farmers; t.brochure += g.brochure; t.travelOrders += to; t.days += g.days;
+    t.rice += g.rice; t.corn += g.corn; t.hvc += g.hvc; t.liv += g.liv; t.fsh += g.fsh; t.nci += g.nci; t.tip += g.tip;
+    html += `<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${g.farmers}</td><td>${g.brochure}</td><td>${to}</td><td>${g.days}</td><td>${g.rice}</td><td>${g.corn}</td><td>${g.hvc}</td><td>${g.liv}</td><td>${g.fsh}</td><td>${g.nci}</td><td>${g.tip}</td></tr>`;
   });
-
-  const monthData = {};
-  data.forEach(r => { const m=getMonth(r.startDate); if(m) monthData[m]=(monthData[m]||0)+1; });
-  const mLabels = Object.keys(monthData).sort();
-  charts.trend = new Chart(document.getElementById('chartTrend'), {
-    type: 'line', data: { labels: mLabels, datasets: [{ label: 'Entries', data: mLabels.map(m=>monthData[m]), borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.1)', fill: true, tension: 0.3 }] },
-    options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
-  });
-
-  charts.gender = new Chart(document.getElementById('chartGender'), {
-    type: 'pie', data: { labels: ['Male','Female'], datasets: [{ data: [totalMale,totalFemale], backgroundColor: ['#2563eb','#ec4899'] }] },
-    options: { responsive: true, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }
-  });
+  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td>${t.farmers}</td><td>${t.brochure}</td><td>${t.travelOrders}</td><td>${t.days}</td><td>${t.rice}</td><td>${t.corn}</td><td>${t.hvc}</td><td>${t.liv}</td><td>${t.fsh}</td><td>${t.nci}</td><td>${t.tip}</td></tr>`;
+  html += '</table>';
+  body.innerHTML = html;
 }
 
 // Google Sheets Sync
