@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PCIC R10 Monthly Accomplishment Report per Underwriter</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -28,8 +27,6 @@
   .btn-undo:hover { background: #6d28d9; }
   .btn-dashboard { background: #4f46e5; color: #fff; }
   .btn-dashboard:hover { background: #4338ca; }
-  .btn-export-uw { background: #0d9488; color: #fff; }
-  .btn-export-uw:hover { background: #0f766e; }
   .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-row-submit { padding: 4px 8px; border: none; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; font-family: inherit; background: #059669; color: #fff; transition: background 0.15s, transform 0.1s; white-space: nowrap; }
   .btn-row-submit:hover { background: #047857; }
@@ -97,14 +94,13 @@
   .dash-table-wrap td.left { text-align: left; }
   .dash-table-wrap tr:hover td { background: #f8fafc; }
   .dash-table-wrap tr.total-row td { background: #f1f5f9; font-weight: 700; }
-  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
-  .stat-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; text-align: center; }
-  .stat-card .value { font-size: 28px; font-weight: 700; color: #1e293b; }
-  .stat-card .label { font-size: 12px; color: #64748b; margin-top: 4px; }
-  .chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
-  .chart-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; }
-  .chart-box h4 { font-size: 13px; color: #1e293b; margin-bottom: 8px; font-weight: 600; }
-  @media print { body { background: #fff; padding: 0; } .container { box-shadow: none; padding: 8px; } .toolbar, .pagination, .row-del, .btn-undo, .btn-check, .btn-reset, .btn-dashboard, .btn-export-uw { display: none !important; } }
+  .dash-table-wrap th:first-child, .dash-table-wrap td:first-child { position: sticky; left: 0; z-index: 2; box-shadow: 1px 0 0 #e2e8f0; }
+  .dash-table-wrap th:first-child { background: #1e293b; z-index: 3; }
+  .dash-table-wrap td:first-child { background: #fff; }
+  .dash-table-wrap tr.total-row td:first-child { background: #f1f5f9; }
+  .dash-table-wrap tr:hover td:first-child { background: #f8fafc; }
+  .dash-table-wrap tr.total-row:hover td:first-child { background: #f1f5f9; }
+  @media print { body { background: #fff; padding: 0; } .container { box-shadow: none; padding: 8px; } .toolbar, .pagination, .row-del, .btn-undo, .btn-check, .btn-reset, .btn-dashboard { display: none !important; } }
   .sheet-summary { margin-top: 20px; overflow-x: auto; }
   .sheet-summary h3 { color: #1e293b; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
   .sheet-summary table { width: 100%; border-collapse: collapse; font-size: 11px; min-width: 1200px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
@@ -127,7 +123,6 @@
   <div class="toolbar">
     <button class="btn-add" onclick="addRow()">+ Add Row</button>
     <button class="btn-undo" id="undoBtn" onclick="undoDelete()" disabled>Undo</button>
-    <button class="btn-export-uw" onclick="exportByUnderwriter()">Export by UW</button>
     <button class="btn-check" onclick="validateAll()">Check</button>
     <button class="btn-dashboard" onclick="openDashboard()">Dashboard</button>
     <button class="btn-reset" onclick="promptReset()">Reset</button>
@@ -197,8 +192,6 @@ let sortCol = null;
 let sortDir = 1;
 let currentPage = 1;
 const PAGE_SIZE = 50;
-let charts = {};
-let monthlyData = [];
 let prevMonthData = [];
 let prevMonthLabel = '';
 let sheetMonth = '';
@@ -436,33 +429,6 @@ function undoDelete() {
 
 function filterTable() { currentPage = 1; render(); }
 
-function exportByUnderwriter() {
-  const uw = prompt('Enter underwriter to export (e.g. QND):');
-  if (!uw) return;
-  const filtered = data.filter(r => r.underwriter === uw);
-  if (!filtered.length) { showToast('No entries found for ' + uw); return; }
-  const headers = COLS.map(c=>c.header);
-  let csv = headers.map(h=>`"${h}"`).join(',')+'\r\n';
-  filtered.forEach(row => {
-    csv += COLS.map(c => {
-      let v = row[c.key] ?? '';
-      if (c.type==='checkbox') v = v ? 'Yes' : 'No';
-      return `"${String(v).replace(/"/g,'""')}"`;
-    }).join(',')+'\r\n';
-  });
-  downloadFile(csv, `PCIC_R10_${uw}.csv`);
-  showToast('Exported ' + filtered.length + ' row(s) for ' + uw);
-}
-
-function downloadFile(content, filename) {
-  const blob = new Blob(['\uFEFF'+content], {type:'text/csv;charset=utf-8;'});
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(link.href);
-}
-
 function promptReset() {
   const pwd = prompt('Enter password to reset:');
   if (pwd !== 'Zareenah7') { if (pwd !== null) showToast('Incorrect password'); return; }
@@ -499,16 +465,6 @@ function getMonth(dateStr) {
   const d = new Date(dateStr);
   if (isNaN(d)) return '';
   return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]+' '+d.getFullYear();
-}
-
-function getWeek(dateStr) {
-  if (!dateStr) return '';
-  const parts = dateStr.split('-');
-  const d = parts.length === 3 ? new Date(+parts[0], +parts[1] - 1, +parts[2]) : new Date(dateStr);
-  if (isNaN(d)) return '';
-  const day = d.getDate();
-  if (day<=7) return 'Week 1'; if (day<=14) return 'Week 2';
-  if (day<=21) return 'Week 3'; if (day<=28) return 'Week 4'; return 'Week 5';
 }
 
 function validateAll() {
@@ -582,14 +538,19 @@ function renderWeeklySummary() {
   document.getElementById('weeklySummary').innerHTML = html;
 }
 
+function julyLabel() {
+  const now = new Date();
+  return 'Jul ' + (now.getMonth() < 6 ? now.getFullYear() - 1 : now.getFullYear());
+}
+
 function sheetMonthOptions() {
   const arr = [];
-  const d = new Date();
-  d.setDate(1);
-  for (let i = 0; i < 12; i++) {
-    const m = new Date(d);
-    m.setMonth(m.getMonth() - i);
-    arr.push(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m.getMonth()] + ' ' + m.getFullYear());
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const now = new Date();
+  const y = now.getMonth() < 6 ? now.getFullYear() - 1 : now.getFullYear();
+  const start = new Date(y, 6, 1);
+  for (let m = new Date(now.getFullYear(), now.getMonth(), 1); m >= start; m = new Date(m.getFullYear(), m.getMonth() - 1, 1)) {
+    arr.push(MONTHS[m.getMonth()] + ' ' + m.getFullYear());
   }
   return arr;
 }
@@ -604,7 +565,7 @@ async function sheetMonthChanged() {
 function renderSheetSummary() {
   const mSel = document.getElementById('sheetMonthFilter');
   if (mSel && mSel.value) sheetMonth = mSel.value;
-  if (!sheetMonth) sheetMonth = prevMonthLabel;
+  if (!sheetMonth) sheetMonth = julyLabel();
   const sheetSel = document.getElementById('sheetUwFilter');
   let sheetUw = sheetSel ? sheetSel.value : '';
   const sheetUws = [...new Set(prevMonthData.map(r => r.underwriter).filter(Boolean))].sort();
@@ -613,7 +574,7 @@ function renderSheetSummary() {
   if (sheetMonth && monthOpts.indexOf(sheetMonth) === -1) monthOpts.unshift(sheetMonth);
   const monthSelHtml = '<select id="sheetMonthFilter" onchange="sheetMonthChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;">' + monthOpts.map(m => '<option value="' + m + '"' + (m === sheetMonth ? ' selected' : '') + '>' + m + '</option>').join('') + '</select>';
   const sheetSelHtml = '<select id="sheetUwFilter" onchange="renderSheetSummary()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">All</option>' + sheetUws.map(u => '<option value="' + escHtml(u) + '"' + (u === sheetUw ? ' selected' : '') + '>' + escHtml(u) + '</option>').join('') + '</select>';
-  const sheetHead = '<h3>Submitted Entries Summary &mdash; ' + monthSelHtml + ' ' + sheetSelHtml + '</h3>';
+  const sheetHead = '<h3>Previous Month Summary &mdash; ' + monthSelHtml + ' ' + sheetSelHtml + '</h3>';
   if (!prevMonthData.length) { document.getElementById('sheetSummary').innerHTML = sheetHead + '<p>No submitted entries for ' + escHtml(sheetMonth) + '.</p>'; return; }
   const groups = {};
   const sheetSrc = sheetUw ? prevMonthData.filter(r => r.underwriter === sheetUw) : prevMonthData;
@@ -660,36 +621,15 @@ async function fetchSheetMonth(label) {
 }
 
 async function fetchMonthlySummary() {
-  monthlyData = [];
   prevMonthData = [];
-
-  var months = [];
-  var d = new Date();
-  d.setDate(1);
-  for (var offset = -1; offset <= 1; offset++) {
-    var m = new Date(d);
-    m.setMonth(m.getMonth() + offset);
-    months.push(['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m.getMonth()] + ' ' + m.getFullYear());
-  }
-  var monthSet = new Set(months);
 
   var pd = new Date();
   pd.setDate(1);
   pd.setMonth(pd.getMonth() - 1);
   prevMonthLabel = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][pd.getMonth()] + ' ' + pd.getFullYear();
 
-  data.forEach(function(r) {
-    if (!r.startDate) return;
-    var parts = r.startDate.split('-');
-    var dt = parts.length === 3 ? new Date(+parts[0], +parts[1] - 1, +parts[2]) : new Date(r.startDate);
-    if (isNaN(dt)) return;
-    var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][dt.getMonth()] + ' ' + dt.getFullYear();
-    if (!monthSet.has(m)) return;
-    monthlyData.push(r);
-  });
-
   // Source selected-month rows from the monthly sheet on the server
-  if (!sheetMonth) sheetMonth = prevMonthLabel;
+  if (!sheetMonth) sheetMonth = julyLabel();
   prevMonthData = await fetchSheetMonth(sheetMonth);
   renderSheetSummary();
 }
@@ -706,8 +646,6 @@ async function openDashboard() {
 }
 function closeDashboard() {
   document.getElementById('dashboardModal').classList.remove('show');
-  Object.values(charts).forEach(c=>c.destroy());
-  charts = {};
 }
 
 function renderDashboard() {
