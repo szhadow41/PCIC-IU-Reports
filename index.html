@@ -127,6 +127,8 @@
   .sheet-summary td { padding: 6px 10px; border-bottom: 1px solid #e2e8f0; text-align: center; }
   .sheet-summary td.left { text-align: left; }
   .sheet-summary tr:hover td { background: #f8fafc; }
+  .sheet-summary tr.total-row td { background: var(--brand-tint); color: var(--brand-deep); font-weight: 700; border-top: 2px solid var(--brand); }
+  .sheet-summary tr.total-row:hover td { background: var(--brand-tint); }
 
 </style>
 </head>
@@ -163,6 +165,7 @@
   <div class="summary" id="summary"></div>
   <div class="weekly-summary" id="weeklySummary"></div>
   <div class="sheet-summary" id="sheetSummary"></div>
+  <div class="sheet-summary" id="complianceSection"></div>
 </div>
 <datalist id="travelOrderList"><option value="NO TRAVEL"></datalist>
 <div class="toast" id="toast"></div>
@@ -223,6 +226,12 @@ let travelRows = [];
 let travelLoading = false;
 let travelError = false;
 let travelReqSeq = 0;
+let compData = [];
+let compLoading = false;
+let compError = false;
+let compReqSeq = 0;
+let compUw = '';
+let compSources = {};
 
 
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -306,6 +315,7 @@ function render() {
   renderWeeklySummary();
   fetchMonthlySummary();
   renderSheetSummary();
+  renderCompliance();
   document.getElementById('rowCount').textContent = filtered.length;
   document.getElementById('summary').innerHTML = `
     <span><strong>Male:</strong> ${totalMale}</span><span><strong>Female:</strong> ${totalFemale}</span>
@@ -712,6 +722,151 @@ async function fetchSheetMonth(label) {
   } catch(e) {
     return { rows: localFallback(), error: true };
   }
+}
+
+const MON_IDX = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+
+function isoDate(d) {
+  const m = d.getMonth() + 1, day = d.getDate();
+  return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
+}
+
+function monthWeeks(year, mon) {
+  const weeks = [];
+  const today = isoDate(new Date());
+  const last = new Date(year, mon + 1, 0);
+  const cur = new Date(year, mon, 1);
+  cur.setDate(cur.getDate() - ((cur.getDay() + 6) % 7));
+  let wi = 0;
+  while (cur <= last) {
+    const days = [];
+    for (let i = 0; i < 5; i++) {
+      const d = new Date(cur);
+      d.setDate(cur.getDate() + i);
+      if (d.getMonth() === mon && isoDate(d) <= today) days.push(isoDate(d));
+    }
+    if (days.length >= 3) { wi++; weeks.push({ label: 'W' + wi, days: days }); }
+    cur.setDate(cur.getDate() + 7);
+  }
+  return weeks;
+}
+
+async function loadComplianceData() {
+  const id = ++compReqSeq;
+  const labels = sheetMonthOptions();
+  if (labels.every(l => sheetCache[l])) {
+    compData = mergeTravelRows(data.slice(), labels.map(l => sheetCache[l].rows).flat());
+    compError = labels.some(l => sheetCache[l].error);
+    compSources = {};
+    labels.forEach(l => compSources[l] = (sheetCache[l] && sheetCache[l].error) ? 'unreachable' : 'ok');
+    compLoading = false;
+    renderCompliance();
+    return;
+  }
+  compLoading = true; compError = false;
+  renderCompliance();
+  const results = await Promise.all(labels.map(async (l) => {
+    let res = sheetCache[l];
+    if (!res) { res = await fetchSheetMonth(l); sheetCache[l] = res; }
+    return res;
+  }));
+  if (id !== compReqSeq) return;
+  compData = mergeTravelRows(data.slice(), results.map(r => r.rows).flat());
+  compError = results.some(r => r.error);
+  compSources = {};
+  labels.forEach((l, i) => compSources[l] = results[i].error ? 'unreachable' : 'ok');
+  compLoading = false;
+  renderCompliance();
+}
+function reloadComplianceData() {
+  sheetMonthOptions().forEach(l => delete sheetCache[l]);
+  loadComplianceData();
+}
+function compUwChanged() {
+  const sel = document.getElementById('compUwFilter');
+  compUw = sel ? sel.value : '';
+  if (!compUw) { compData = []; compError = false; compLoading = false; renderCompliance(); return; }
+  loadComplianceData();
+}
+function renderCompliance() {
+  const el = document.getElementById('complianceSection');
+  const compSel = document.getElementById('compUwFilter');
+  if (compSel) compUw = compSel.value;
+  const compSelHtml = '<select id="compUwFilter" onchange="compUwChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">Select underwriter…</option><option value="ALL"' + (compUw === 'ALL' ? ' selected' : '') + '>All</option>' + [...underwriters].sort().map(u => '<option value="' + u + '"' + (u === compUw ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>';
+  const compRefreshHtml = '<button onclick="reloadComplianceData()" style="font-size:11px;padding:2px 10px;border:1px solid #e2e8f0;border-radius:4px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;margin-left:6px;">Refresh</button>';
+  const head = '<h3>Report Infractions ' + compSelHtml + compRefreshHtml + '</h3>';
+  if (!compUw) { el.innerHTML = head + '<p>Select an underwriter to load the report.</p>'; return; }
+  if (compLoading) { el.innerHTML = head + '<p><span class="spin"></span>Loading…</p>'; return; }
+  if (compError && !compData.length) { el.innerHTML = head + '<p>Could not load monthly sheets. Check your connection.</p><p><button onclick="reloadComplianceData()" style="font-size:12px;padding:4px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;">Reconnect</button></p>'; return; }
+  if (!compData.length) { el.innerHTML = head + '<p>No entries found for this period.</p>'; return; }
+  const present = new Set();
+  compData.forEach(r => { if (r.underwriter && r.startDate) present.add(String(r.underwriter).trim().toUpperCase() + '|' + String(r.startDate).trim()); });
+  const COMMODITIES = ['rice', 'corn', 'hvc', 'liv', 'fsh', 'nci', 'tip'];
+  const groups = {};
+  compData.forEach(r => {
+    const uw = (r.underwriter && String(r.underwriter).trim()) || '(blank)';
+    const month = getMonth(r.startDate) || '(no date)';
+    const key = uw + '|' + month;
+    if (!groups[key]) groups[key] = { underwriter: uw, month: month, nonDec: 0, commodity: 0, overlong: 0, tos: new Set() };
+    const g = groups[key];
+    if (r.travelOrder !== 'NO TRAVEL') {
+      const to = (r.travelOrder && String(r.travelOrder).trim()) || '';
+      let bad = false;
+      if (!COMMODITIES.some(k => r[k])) { g.commodity++; bad = true; }
+      if (daysTraveled(r.startDate, r.endDate) > 5) { g.overlong++; bad = true; }
+      if (bad && to) g.tos.add(to);
+    }
+  });
+  const labels = sheetMonthOptions();
+  labels.forEach(label => {
+    const parts = label.split(' ');
+    monthWeeks(+parts[1], MON_IDX[parts[0]]).forEach(w => {
+      underwriters.forEach(uw => {
+        if (!w.days.some(d => present.has(String(uw).trim().toUpperCase() + '|' + d))) {
+          const k = uw + '|' + label;
+          if (!groups[k]) { const p = k.split('|'); groups[k] = { underwriter: p[0], month: p[1], nonDec: 0, commodity: 0, overlong: 0, tos: new Set() }; }
+          groups[k].nonDec++;
+        }
+      });
+    });
+  });
+  const mval = (m) => { const p = String(m).split(' '); return MON_IDX[p[0]] === undefined ? -1 : (+p[1] * 12 + MON_IDX[p[0]]); };
+  const rows = Object.values(groups)
+    .filter(g => (g.nonDec + g.commodity + g.overlong) > 0)
+    .filter(g => compUw === 'ALL' || g.underwriter === compUw)
+    .sort((a, b) => a.underwriter.localeCompare(b.underwriter) || mval(a.month) - mval(b.month));
+  if (!rows.length) { el.innerHTML = head + '<p>No infractions found.</p>'; return; }
+  const NONDEC_WEIGHT = 2;
+  const t = { nonDec: 0, commodity: 0, overlong: 0, total: 0 };
+  const badMonths = Object.keys(compSources).filter(l => compSources[l] === 'unreachable');
+  const srcNote = badMonths.length ? '<p>Note: ' + badMonths.map(m => escHtml(m)).join(', ') + ' sheet(s) unreachable &mdash; showing local data only.</p>' : '';
+  let html = head + srcNote + '<table><tr><th>Underwriter</th><th>Month</th><th>Travel Order</th><th>Non-Declaration of Travel (×2)</th><th>No Commodity</th><th>Overlong Travel</th><th>Total</th></tr>';
+  rows.forEach(g => {
+    const w = g.nonDec * NONDEC_WEIGHT;
+    const tot = w + g.commodity + g.overlong;
+    t.nonDec += w; t.commodity += g.commodity; t.overlong += g.overlong; t.total += tot;
+    html += `<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${escHtml(g.month)}</td><td class="left">${[...g.tos].map(o => escHtml(o)).join('; ') || '&mdash;'}</td><td>${w}</td><td>${g.commodity}</td><td>${g.overlong}</td><td><strong>${tot}</strong></td></tr>`;
+  });
+  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td></td><td></td><td>${t.nonDec}</td><td>${t.commodity}</td><td>${t.overlong}</td><td><strong>${t.total}</strong></td></tr>`;
+  html += '</table>';
+  const assessTotal = (t) => t >= 10 ? 'Memorandum Subject' : t >= 4 ? 'Subject for Reprimand' : t >= 1 ? 'For Advisory' : '—';
+  const uwTotals = {};
+  rows.forEach(g => {
+    if (!uwTotals[g.underwriter]) uwTotals[g.underwriter] = { underwriter: g.underwriter, nonDec: 0, commodity: 0, overlong: 0 };
+    const u = uwTotals[g.underwriter];
+    u.nonDec += g.nonDec * NONDEC_WEIGHT; u.commodity += g.commodity; u.overlong += g.overlong;
+  });
+  const urows = Object.values(uwTotals).sort((a, b) => a.underwriter.localeCompare(b.underwriter));
+  const gt = { nonDec: 0, commodity: 0, overlong: 0, total: 0 };
+  html += '<h3>Infraction Assessment per Underwriter</h3><table><tr><th>Underwriter</th><th>Non-Declaration of Travel (×2)</th><th>No Commodity</th><th>Overlong Travel</th><th>Total</th><th>Assessment</th></tr>';
+  urows.forEach(u => {
+    const utot = u.nonDec + u.commodity + u.overlong;
+    gt.nonDec += u.nonDec; gt.commodity += u.commodity; gt.overlong += u.overlong; gt.total += utot;
+    html += `<tr><td class="left"><strong>${escHtml(u.underwriter)}</strong></td><td>${u.nonDec}</td><td>${u.commodity}</td><td>${u.overlong}</td><td><strong>${utot}</strong></td><td>${assessTotal(utot)}</td></tr>`;
+  });
+  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td>${gt.nonDec}</td><td>${gt.commodity}</td><td>${gt.overlong}</td><td><strong>${gt.total}</strong></td><td>&mdash;</td></tr>`;
+  html += '</table>';
+  el.innerHTML = html;
 }
 
 async function fetchMonthlySummary() {
