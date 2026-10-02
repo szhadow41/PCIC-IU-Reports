@@ -803,11 +803,13 @@ function renderCompliance() {
   compData.forEach(r => { if (r.underwriter && r.startDate) present.add(String(r.underwriter).trim().toUpperCase() + '|' + String(r.startDate).trim()); });
   const COMMODITIES = ['rice', 'corn', 'hvc', 'liv', 'fsh', 'nci', 'tip'];
   const groups = {};
+  const dupeTally = {};
+  const norm = (v, fold) => { const s = (v && String(v).trim()) || ''; return fold ? s.toUpperCase() : s; };
   compData.forEach(r => {
     const uw = (r.underwriter && String(r.underwriter).trim()) || '(blank)';
     const month = getMonth(r.startDate) || '(no date)';
     const key = uw + '|' + month;
-    if (!groups[key]) groups[key] = { underwriter: uw, month: month, nonDec: 0, commodity: 0, overlong: 0, tos: new Set() };
+    if (!groups[key]) groups[key] = { underwriter: uw, month: month, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, tos: new Set() };
     const g = groups[key];
     if (r.travelOrder !== 'NO TRAVEL') {
       const to = (r.travelOrder && String(r.travelOrder).trim()) || '';
@@ -815,6 +817,9 @@ function renderCompliance() {
       if (!COMMODITIES.some(k => r[k])) { g.commodity++; bad = true; }
       if (daysTraveled(r.startDate, r.endDate) > 5) { g.overlong++; bad = true; }
       if (bad && to) g.tos.add(to);
+      const dk = norm(uw) + '|' + norm(r.travelOrder) + '|' + norm(r.startDate) + '|' + norm(r.endDate) + '|' + norm(r.venue, true) + '|' + norm(r.agency, true) + '|' + norm(r.purpose, true) + '|' + norm(r.contact, true);
+      if (!dupeTally[dk]) dupeTally[dk] = { n: 0, uw: uw, month: month, to: norm(r.travelOrder) };
+      dupeTally[dk].n++;
     }
   });
   const labels = sheetMonthOptions();
@@ -824,47 +829,54 @@ function renderCompliance() {
       underwriters.forEach(uw => {
         if (!w.days.some(d => present.has(String(uw).trim().toUpperCase() + '|' + d))) {
           const k = uw + '|' + label;
-          if (!groups[k]) { const p = k.split('|'); groups[k] = { underwriter: p[0], month: p[1], nonDec: 0, commodity: 0, overlong: 0, tos: new Set() }; }
+          if (!groups[k]) { const p = k.split('|'); groups[k] = { underwriter: p[0], month: p[1], nonDec: 0, commodity: 0, overlong: 0, dupe: 0, tos: new Set() }; }
           groups[k].nonDec++;
         }
       });
     });
   });
+  Object.values(dupeTally).forEach(d => {
+    if (d.n < 2) return;
+    const k = d.uw + '|' + d.month;
+    if (!groups[k]) groups[k] = { underwriter: d.uw, month: d.month, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, tos: new Set() };
+    groups[k].dupe++;
+    if (d.to) groups[k].tos.add(d.to);
+  });
   const mval = (m) => { const p = String(m).split(' '); return MON_IDX[p[0]] === undefined ? -1 : (+p[1] * 12 + MON_IDX[p[0]]); };
   const rows = Object.values(groups)
-    .filter(g => (g.nonDec + g.commodity + g.overlong) > 0)
+    .filter(g => (g.nonDec + g.commodity + g.overlong + g.dupe) > 0)
     .filter(g => compUw === 'ALL' || g.underwriter === compUw)
     .sort((a, b) => a.underwriter.localeCompare(b.underwriter) || mval(a.month) - mval(b.month));
   if (!rows.length) { el.innerHTML = head + '<p>No infractions found.</p>'; return; }
   const NONDEC_WEIGHT = 2;
-  const t = { nonDec: 0, commodity: 0, overlong: 0, total: 0 };
+  const t = { nonDec: 0, commodity: 0, overlong: 0, dupe: 0, total: 0 };
   const badMonths = Object.keys(compSources).filter(l => compSources[l] === 'unreachable');
   const srcNote = badMonths.length ? '<p>Note: ' + badMonths.map(m => escHtml(m)).join(', ') + ' sheet(s) unreachable &mdash; showing local data only.</p>' : '';
-  let html = head + srcNote + '<table><tr><th>Underwriter</th><th>Month</th><th>Travel Order</th><th>Non-Declaration of Travel (×2)</th><th>No Commodity</th><th>Overlong Travel</th><th>Total</th></tr>';
+  let html = head + srcNote + '<table><tr><th>Underwriter</th><th>Month</th><th>Travel Order</th><th>Non-Declaration of Travel or No-Travel (×2)</th><th>Total Absence viable commodity</th><th>Erroneous Travel Dates</th><th>Duplicate Entry</th><th>Total</th></tr>';
   rows.forEach(g => {
     const w = g.nonDec * NONDEC_WEIGHT;
-    const tot = w + g.commodity + g.overlong;
-    t.nonDec += w; t.commodity += g.commodity; t.overlong += g.overlong; t.total += tot;
-    html += `<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${escHtml(g.month)}</td><td class="left">${[...g.tos].map(o => escHtml(o)).join('; ') || '&mdash;'}</td><td>${w}</td><td>${g.commodity}</td><td>${g.overlong}</td><td><strong>${tot}</strong></td></tr>`;
+    const tot = w + g.commodity + g.overlong + g.dupe;
+    t.nonDec += w; t.commodity += g.commodity; t.overlong += g.overlong; t.dupe += g.dupe; t.total += tot;
+    html += `<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${escHtml(g.month)}</td><td class="left">${[...g.tos].map(o => escHtml(o)).join('; ') || '&mdash;'}</td><td>${w}</td><td>${g.commodity}</td><td>${g.overlong}</td><td>${g.dupe}</td><td><strong>${tot}</strong></td></tr>`;
   });
-  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td></td><td></td><td>${t.nonDec}</td><td>${t.commodity}</td><td>${t.overlong}</td><td><strong>${t.total}</strong></td></tr>`;
+  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td></td><td></td><td>${t.nonDec}</td><td>${t.commodity}</td><td>${t.overlong}</td><td>${t.dupe}</td><td><strong>${t.total}</strong></td></tr>`;
   html += '</table>';
-  const assessTotal = (t) => t >= 10 ? 'Memorandum Subject' : t >= 4 ? 'Subject for Reprimand' : t >= 1 ? 'For Advisory' : '—';
+  const assessTotal = (t) => t >= 10 ? 'Subject for Memorandum' : t >= 4 ? 'Subject for Reprimand' : t >= 1 ? 'Subject for Admonition' : '—';
   const uwTotals = {};
   rows.forEach(g => {
-    if (!uwTotals[g.underwriter]) uwTotals[g.underwriter] = { underwriter: g.underwriter, nonDec: 0, commodity: 0, overlong: 0 };
+    if (!uwTotals[g.underwriter]) uwTotals[g.underwriter] = { underwriter: g.underwriter, nonDec: 0, commodity: 0, overlong: 0, dupe: 0 };
     const u = uwTotals[g.underwriter];
-    u.nonDec += g.nonDec * NONDEC_WEIGHT; u.commodity += g.commodity; u.overlong += g.overlong;
+    u.nonDec += g.nonDec * NONDEC_WEIGHT; u.commodity += g.commodity; u.overlong += g.overlong; u.dupe += g.dupe;
   });
   const urows = Object.values(uwTotals).sort((a, b) => a.underwriter.localeCompare(b.underwriter));
-  const gt = { nonDec: 0, commodity: 0, overlong: 0, total: 0 };
-  html += '<h3>Infraction Assessment per Underwriter</h3><table><tr><th>Underwriter</th><th>Non-Declaration of Travel (×2)</th><th>No Commodity</th><th>Overlong Travel</th><th>Total</th><th>Assessment</th></tr>';
+  const gt = { nonDec: 0, commodity: 0, overlong: 0, dupe: 0, total: 0 };
+  html += '<h3>Infraction Assessment per Underwriter</h3><table><tr><th>Underwriter</th><th>Non-Declaration of Travel or No-Travel (×2)</th><th>Total Absence viable commodity</th><th>Erroneous Travel Dates</th><th>Duplicate Entry</th><th>Total</th><th>Assessment</th></tr>';
   urows.forEach(u => {
-    const utot = u.nonDec + u.commodity + u.overlong;
-    gt.nonDec += u.nonDec; gt.commodity += u.commodity; gt.overlong += u.overlong; gt.total += utot;
-    html += `<tr><td class="left"><strong>${escHtml(u.underwriter)}</strong></td><td>${u.nonDec}</td><td>${u.commodity}</td><td>${u.overlong}</td><td><strong>${utot}</strong></td><td>${assessTotal(utot)}</td></tr>`;
+    const utot = u.nonDec + u.commodity + u.overlong + u.dupe;
+    gt.nonDec += u.nonDec; gt.commodity += u.commodity; gt.overlong += u.overlong; gt.dupe += u.dupe; gt.total += utot;
+    html += `<tr><td class="left"><strong>${escHtml(u.underwriter)}</strong></td><td>${u.nonDec}</td><td>${u.commodity}</td><td>${u.overlong}</td><td>${u.dupe}</td><td><strong>${utot}</strong></td><td>${assessTotal(utot)}</td></tr>`;
   });
-  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td>${gt.nonDec}</td><td>${gt.commodity}</td><td>${gt.overlong}</td><td><strong>${gt.total}</strong></td><td>&mdash;</td></tr>`;
+  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td>${gt.nonDec}</td><td>${gt.commodity}</td><td>${gt.overlong}</td><td>${gt.dupe}</td><td><strong>${gt.total}</strong></td><td>&mdash;</td></tr>`;
   html += '</table>';
   el.innerHTML = html;
 }
