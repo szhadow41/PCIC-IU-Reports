@@ -164,7 +164,7 @@
     <button class="btn-undo" id="undoBtn" onclick="undoDelete()" disabled>Undo</button>
     <button class="btn-check" onclick="validateAll()">Check</button>
     <button class="btn-dashboard" onclick="openDashboard()">Dashboard</button>
-    <button class="btn-reset" onclick="promptReset()">Reset</button>
+    <button class="btn-reset" id="resetBtn" onclick="promptReset()">Reset</button>
     <select class="filter-select" id="uwFilter" onchange="filterTable()">
       <option value="">All Underwriters</option>
     </select>
@@ -224,25 +224,8 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzfeoD4V3f-uuzN
 // ===== PAGE LOGIN (DETERRENT ONLY — passwords are visible in page source; real access control is server-side) =====
 // Replace every CHANGE-ME value with the real password before distributing this file.
 const CREDENTIALS = [
-  { password: 'UW-QND-CHANGE-ME', name: 'QND', role: 'user' },
-  { password: 'UW-ERL-CHANGE-ME', name: 'ERL', role: 'user' },
-  { password: 'UW-GPUB-CHANGE-ME', name: 'GPUB', role: 'user' },
-  { password: 'UW-ICG-CHANGE-ME', name: 'ICG', role: 'user' },
-  { password: 'UW-JABU-CHANGE-ME', name: 'JABU', role: 'user' },
-  { password: 'UW-JBB-CHANGE-ME', name: 'JBB', role: 'user' },
-  { password: 'UW-JFM-CHANGE-ME', name: 'JFM', role: 'user' },
-  { password: 'UW-JNL-CHANGE-ME', name: 'JNL', role: 'user' },
-  { password: 'UW-LBB-CHANGE-ME', name: 'LBB', role: 'user' },
-  { password: 'UW-LLM-CHANGE-ME', name: 'LLM', role: 'user' },
-  { password: 'UW-METB-CHANGE-ME', name: 'METB', role: 'user' },
-  { password: 'UW-MMS-CHANGE-ME', name: 'MMS', role: 'user' },
-  { password: 'UW-NJE-CHANGE-ME', name: 'NJE', role: 'user' },
-  { password: 'UW-PTJ-CHANGE-ME', name: 'PTJ', role: 'user' },
-  { password: 'UW-SJGN-CHANGE-ME', name: 'SJGN', role: 'user' },
-  { password: 'UW-TMR-CHANGE-ME', name: 'TMR', role: 'user' },
-  { password: 'UW-JSE-CHANGE-ME', name: 'JSE', role: 'user' },
-  { password: 'UW-WGK-CHANGE-ME', name: 'WGK', role: 'user' },
-  { password: 'PCICRegion10', name: 'Admin', role: 'admin' },
+  { password: 'PCICRegion10', name: 'Limited Access', role: 'limited' },
+  { password: 'Zareenah', name: 'Administrator', role: 'admin' },
 ];
 let sessionUser = null;
 function isAdmin() { return !!(sessionUser && sessionUser.role === 'admin'); }
@@ -497,15 +480,8 @@ function autoTotalAll() {
 
 function unlockComment(el) {
   if (!el.hasAttribute('readonly')) return;
-  if (isAdmin()) { el.removeAttribute('readonly'); el.style.background=''; el.style.color=''; el.style.cursor=''; el.focus(); return; }
-  const pw = prompt('Enter admin password to unlock Supervisor\'s Comment:');
-  if (pw === 'PCICRegion10') {
-    el.removeAttribute('readonly');
-    el.style.background = '';
-    el.style.color = '';
-    el.style.cursor = '';
-    el.focus();
-  }
+  if (!isAdmin()) return;
+  el.removeAttribute('readonly'); el.style.background=''; el.style.color=''; el.style.cursor=''; el.focus();
 }
 function autoResize(ta) { ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; }
 
@@ -535,10 +511,7 @@ function undoDelete() {
 function filterTable() { currentPage = 1; render(); }
 
 function promptReset() {
-  if (!isAdmin()) {
-    const pwd = prompt('Enter password to reset:');
-    if (pwd !== 'PCICRegion10') { if (pwd !== null) showToast('Incorrect password'); return; }
-  }
+  if (!isAdmin()) { showToast('Admin access required'); return; }
   if (confirm('Are you sure? This will clear all data entries.')) {
     localStorage.removeItem('acc_data');
     data = []; rowIdCounter = 0;
@@ -646,9 +619,8 @@ async function loadTravelData() {
     if (id !== travelReqSeq) return;
     serverRows = res.rows; err = res.error;
   }
-  const localRows = travelUw === 'ALL' ? data.slice() : data.filter(r => r.underwriter === travelUw);
   const serverSrc = travelUw === 'ALL' ? serverRows : serverRows.filter(r => r.underwriter === travelUw);
-  travelRows = mergeTravelRows(localRows, serverSrc);
+  travelRows = mergeTravelRows([], serverSrc);
   travelError = err;
   travelLoading = false;
   renderWeeklySummary();
@@ -668,7 +640,7 @@ function refreshTravelData() {
 function renderWeeklySummary() {
   const travelSel = document.getElementById('travelUwFilter');
   if (travelSel) travelUw = travelSel.value;
-  const travelUws = [...new Set(data.concat(travelRows).map(r => r.underwriter).filter(Boolean))].sort();
+  const travelUws = [...new Set(travelRows.map(r => r.underwriter).filter(Boolean))].sort();
   const uwOpts = travelUws.slice();
   if (travelUw && travelUw !== 'ALL' && uwOpts.indexOf(travelUw) === -1) uwOpts.unshift(travelUw);
   const travelSelHtml = '<select id="travelUwFilter" onchange="travelUwChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">Select underwriter…</option><option value="ALL"' + (travelUw === 'ALL' ? ' selected' : '') + '>All</option>' + uwOpts.map(u => '<option value="' + escHtml(u) + '"' + (u === travelUw ? ' selected' : '') + '>' + escHtml(u) + '</option>').join('') + '</select>';
@@ -1174,8 +1146,10 @@ function signOut() {
 function updateSessionBadge() {
   const badge = document.getElementById('sessionBadge');
   const btn = document.getElementById('signOutBtn');
-  if (badge) badge.textContent = sessionUser ? sessionUser.name + (isAdmin() ? ' (Admin)' : '') : '—';
+  const rb = document.getElementById('resetBtn');
+  if (badge) badge.textContent = sessionUser ? sessionUser.name : '—';
   if (btn) btn.style.display = sessionUser ? '' : 'none';
+  if (rb) rb.style.display = isAdmin() ? '' : 'none';
 }
 function initAccess() {
   try {
