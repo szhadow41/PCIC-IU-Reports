@@ -769,7 +769,7 @@ async function fetchSheetMonth(label) {
     row.submittedAt = (r['Submitted At'] && String(r['Submitted At']).slice(0,10)) || '';
     return row;
   });
-  const localFallback = () => data.filter(r => getMonth(r.startDate) === label);
+  const localFallback = () => data.filter(r => r._submitted && getMonth(r.startDate) === label);
   try {
     const resp = await fetch(APPS_SCRIPT_URL + '?month=' + encodeURIComponent(label));
     const json = await resp.json();
@@ -811,7 +811,7 @@ async function loadComplianceData() {
   const id = ++compReqSeq;
   const labels = sheetMonthOptions();
   if (labels.every(l => sheetCache[l])) {
-    compData = mergeTravelRows(data.slice(), labels.map(l => sheetCache[l].rows).flat());
+    compData = mergeTravelRows(data.filter(r => r._submitted), labels.map(l => sheetCache[l].rows).flat());
     compError = labels.some(l => sheetCache[l].error);
     compSources = {};
     labels.forEach(l => compSources[l] = (sheetCache[l] && sheetCache[l].error) ? 'unreachable' : 'ok');
@@ -827,7 +827,7 @@ async function loadComplianceData() {
     return res;
   }));
   if (id !== compReqSeq) return;
-  compData = mergeTravelRows(data.slice(), results.map(r => r.rows).flat());
+  compData = mergeTravelRows(data.filter(r => r._submitted), results.map(r => r.rows).flat());
   compError = results.some(r => r.error);
   compSources = {};
   labels.forEach((l, i) => compSources[l] = results[i].error ? 'unreachable' : 'ok');
