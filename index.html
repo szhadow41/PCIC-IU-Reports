@@ -96,6 +96,20 @@
   .modal-box h3 { color: var(--ink); margin-bottom: 16px; font-size: 16px; font-weight: 600; border-left: 4px solid var(--brand); padding-left: 10px; }
   .modal-close { float: right; background: none; border: none; font-size: 20px; cursor: pointer; color: #94a3b8; padding: 4px 8px; border-radius: 4px; }
   .modal-close:hover { background: #f1f5f9; color: #1e293b; }
+  #loginModal .modal-box { max-width: 420px; border-top: 6px solid var(--brand); text-align: center; }
+  #loginModal h3 { font-size: 18px; border-left: none; padding-left: 0; }
+  #loginPass { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; font-family: inherit; margin: 12px 0 6px; text-align: center; outline: none; }
+  #loginPass:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(22,163,74,0.12); }
+  #loginError { color: var(--danger); font-size: 12px; min-height: 18px; margin-bottom: 8px; }
+  #loginModal.modal-overlay { background: linear-gradient(135deg, rgba(20,83,45,0.88), rgba(0,0,0,0.78)); backdrop-filter: blur(8px); }
+  #loginModal .modal-box { animation: login-pop 0.3s ease-out; box-shadow: 0 24px 70px rgba(0,0,0,0.35); }
+  @keyframes login-pop { from { transform: scale(0.96) translateY(8px); opacity: 0; } }
+  #disclaimerModal .modal-box { max-width: 700px; border-top: 6px solid var(--brand); }
+  #disclaimerModal h3 { font-size: 20px; border-left-width: 6px; }
+  #disclaimerModal ol { margin: 0 0 20px 22px; font-size: 14px; line-height: 1.7; color: var(--body); }
+  #disclaimerModal ol li { margin-bottom: 10px; }
+  .btn-acknowledge { display: block; width: 100%; padding: 12px; border: none; border-radius: 8px; background: var(--brand); color: #fff; font-size: 15px; font-weight: 700; font-family: inherit; cursor: pointer; }
+  .btn-acknowledge:hover { background: var(--brand-dark); }
   .dash-table-wrap { overflow-x: auto; }
   .dash-table-wrap table { width: 100%; border-collapse: collapse; font-size: 11px; min-width: 1100px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
   .dash-table-wrap th { background: var(--brand-deep); color: #fff; padding: 8px 10px; text-align: center; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; position: sticky; top: 0; }
@@ -137,9 +151,13 @@
   <div class="header">
     <div class="header-top">
       <h2>PCIC R10 Monthly Accomplishment Report per Underwriter</h2>
-      <div class="countdown" id="countdown"></div>
+      <div style="text-align:right;">
+        <div class="countdown" id="countdown"></div>
+        <div id="inputPeriod" style="font-size:15px;font-weight:700;color:#14532d;background:#f0fdf4;border:1px solid #bbf7d0;padding:5px 14px;border-radius:999px;margin-top:6px;white-space:nowrap;"></div>
+      </div>
     </div>
     <p id="currentMonthLabel"></p>
+    <p style="font-size:12px;color:#64748b;">Signed in as <strong id="sessionBadge">—</strong> <button id="signOutBtn" onclick="signOut()" style="font-size:11px;margin-left:8px;padding:2px 10px;border:1px solid #e2e8f0;border-radius:4px;background:#fff;cursor:pointer;font-family:inherit;">Sign out</button></p>
   </div>
   <div class="toolbar">
     <button class="btn-add" onclick="addRow()">+ Add Row</button>
@@ -169,6 +187,29 @@
 </div>
 <datalist id="travelOrderList"><option value="NO TRAVEL"></datalist>
 <div class="toast" id="toast"></div>
+<div class="modal-overlay" id="loginModal">
+  <div class="modal-box">
+    <h3>PCIC R10 Monthly Accomplishment Report</h3>
+    <p style="font-size:13px;color:#64748b;">Enter your password to continue.</p>
+    <input type="password" id="loginPass" placeholder="Password" onkeydown="if(event.key==='Enter')attemptLogin()">
+    <label style="font-size:12px;color:#64748b;display:block;margin:8px 0 4px;cursor:pointer;"><input type="checkbox" onchange="togglePass()" style="vertical-align:-1px;"> Show password</label>
+    <p id="loginError"></p>
+    <button class="btn-acknowledge" onclick="attemptLogin()">Login</button>
+  </div>
+</div>
+<div class="modal-overlay" id="disclaimerModal">
+  <div class="modal-box">
+    <h3>IMPORTANT REMINDERS</h3>
+    <ol>
+      <li>Please provide COMPLETE DATA for all your output.</li>
+      <li>DO NOT LEAVE any blank or TOTAL UNCHECKED commodity.</li>
+      <li>Indicate the Region/Province/City/Municipality of the Agency or Institution who cause the meeting.</li>
+      <li>NO TRAVEL MUST be included, if you had no travel from the previous week or OB if within 50km radius.</li>
+      <li>Check the DATES for possible ERROR in month or year in relation to your actual travel dates.</li>
+    </ol>
+    <button class="btn-acknowledge" onclick="acknowledgeDisclaimer()">Acknowledge</button>
+  </div>
+</div>
 <div class="modal-overlay" id="dashboardModal">
   <div class="modal-box">
     <button class="modal-close" onclick="closeDashboard()">&times;</button>
@@ -179,6 +220,32 @@
 
 <script>
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzfeoD4V3f-uuzNkMq7tgb3tQW88e56WPYSUi4qfgcwHYCfRhcRJuMllH1GBL8X5us/exec";
+
+// ===== PAGE LOGIN (DETERRENT ONLY — passwords are visible in page source; real access control is server-side) =====
+// Replace every CHANGE-ME value with the real password before distributing this file.
+const CREDENTIALS = [
+  { password: 'UW-QND-CHANGE-ME', name: 'QND', role: 'user' },
+  { password: 'UW-ERL-CHANGE-ME', name: 'ERL', role: 'user' },
+  { password: 'UW-GPUB-CHANGE-ME', name: 'GPUB', role: 'user' },
+  { password: 'UW-ICG-CHANGE-ME', name: 'ICG', role: 'user' },
+  { password: 'UW-JABU-CHANGE-ME', name: 'JABU', role: 'user' },
+  { password: 'UW-JBB-CHANGE-ME', name: 'JBB', role: 'user' },
+  { password: 'UW-JFM-CHANGE-ME', name: 'JFM', role: 'user' },
+  { password: 'UW-JNL-CHANGE-ME', name: 'JNL', role: 'user' },
+  { password: 'UW-LBB-CHANGE-ME', name: 'LBB', role: 'user' },
+  { password: 'UW-LLM-CHANGE-ME', name: 'LLM', role: 'user' },
+  { password: 'UW-METB-CHANGE-ME', name: 'METB', role: 'user' },
+  { password: 'UW-MMS-CHANGE-ME', name: 'MMS', role: 'user' },
+  { password: 'UW-NJE-CHANGE-ME', name: 'NJE', role: 'user' },
+  { password: 'UW-PTJ-CHANGE-ME', name: 'PTJ', role: 'user' },
+  { password: 'UW-SJGN-CHANGE-ME', name: 'SJGN', role: 'user' },
+  { password: 'UW-TMR-CHANGE-ME', name: 'TMR', role: 'user' },
+  { password: 'UW-JSE-CHANGE-ME', name: 'JSE', role: 'user' },
+  { password: 'UW-WGK-CHANGE-ME', name: 'WGK', role: 'user' },
+  { password: 'PCICRegion10', name: 'Admin', role: 'admin' },
+];
+let sessionUser = null;
+function isAdmin() { return !!(sessionUser && sessionUser.role === 'admin'); }
 
 const COLS = [
   { key: 'underwriter', header: 'Underwriter', width: 130, type: 'select', required: true },
@@ -204,8 +271,8 @@ const COLS = [
   { key: 'comment', header: "Supervisor's Comment", width: 200, type: 'textarea', maxlen: 300, locked: true }
 ];
 
-const underwriters = ["QND","ERL","GPUB","ICG","JABU","JBB","JFM","JNL","LBB","LLM","METB","MMS","NJE","PTJ","SJGN","TMR","JSE","WKG"];
-const defaultRow = { underwriter:"", travelOrder:"", startDate:"", endDate:"", venue:"", agency:"", purpose:"", contact:"", male:"", female:"", total:"", brochure:"", rice:false, corn:false, hvc:false, liv:false, fsh:false, nci:false, tip:false, feedback:"", comment:"", _submitted:false };
+const underwriters = ["QND","ERL","GPUB","ICG","JABU","JBB","JFM","JNL","LBB","LLM","METB","MMS","NJE","PTJ","SJGN","TMR","JSE","WGK"];
+const defaultRow = { underwriter:"", travelOrder:"", startDate:"", endDate:"", venue:"", agency:"", purpose:"", contact:"", male:"", female:"", total:"", brochure:"", rice:false, corn:false, hvc:false, liv:false, fsh:false, nci:false, tip:false, feedback:"", comment:"", submittedAt:"", _submitted:false };
 
 let data = [];
 let rowIdCounter = 0;
@@ -430,8 +497,9 @@ function autoTotalAll() {
 
 function unlockComment(el) {
   if (!el.hasAttribute('readonly')) return;
+  if (isAdmin()) { el.removeAttribute('readonly'); el.style.background=''; el.style.color=''; el.style.cursor=''; el.focus(); return; }
   const pw = prompt('Enter admin password to unlock Supervisor\'s Comment:');
-  if (pw === 'Zareenah7') {
+  if (pw === 'PCICRegion10') {
     el.removeAttribute('readonly');
     el.style.background = '';
     el.style.color = '';
@@ -467,8 +535,10 @@ function undoDelete() {
 function filterTable() { currentPage = 1; render(); }
 
 function promptReset() {
-  const pwd = prompt('Enter password to reset:');
-  if (pwd !== 'Zareenah7') { if (pwd !== null) showToast('Incorrect password'); return; }
+  if (!isAdmin()) {
+    const pwd = prompt('Enter password to reset:');
+    if (pwd !== 'PCICRegion10') { if (pwd !== null) showToast('Incorrect password'); return; }
+  }
   if (confirm('Are you sure? This will clear all data entries.')) {
     localStorage.removeItem('acc_data');
     data = []; rowIdCounter = 0;
@@ -540,6 +610,19 @@ function daysTraveled(startStr, endStr) {
   const end = parseISODate(endStr) || start;
   const diff = Math.round((end - start) / 86400000) + 1;
   return diff < 0 ? 0 : diff;
+}
+
+function cycleDue(startStr) {
+  const s = parseISODate(String(startStr || '').trim());
+  if (!s) return null;
+  const due = new Date(s);
+  due.setDate(due.getDate() + ((1 - ((due.getDay() + 6) % 7) + 7) % 7));
+  return isoDate(due);
+}
+function isLate(startStr, submittedStr) {
+  const due = cycleDue(startStr);
+  const sub = (submittedStr && String(submittedStr).slice(0, 10)) || '';
+  return !!(due && sub && sub > due);
 }
 
 function mergeTravelRows(localRows, serverRows) {
@@ -711,6 +794,7 @@ async function fetchSheetMonth(label) {
       if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
       row[c.key] = v;
     });
+    row.submittedAt = (r['Submitted At'] && String(r['Submitted At']).slice(0,10)) || '';
     return row;
   });
   const localFallback = () => data.filter(r => getMonth(r.startDate) === label);
@@ -809,8 +893,13 @@ function renderCompliance() {
     const uw = (r.underwriter && String(r.underwriter).trim()) || '(blank)';
     const month = getMonth(r.startDate) || '(no date)';
     const key = uw + '|' + month;
-    if (!groups[key]) groups[key] = { underwriter: uw, month: month, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, tos: new Set() };
+    if (!groups[key]) groups[key] = { underwriter: uw, month: month, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, tos: new Set() };
     const g = groups[key];
+    if (isLate(r.startDate, r.submittedAt)) {
+      g.late++;
+      const lto = (r.travelOrder && String(r.travelOrder).trim()) || '';
+      if (lto) g.tos.add(lto);
+    }
     if (r.travelOrder !== 'NO TRAVEL') {
       const to = (r.travelOrder && String(r.travelOrder).trim()) || '';
       let bad = false;
@@ -829,7 +918,7 @@ function renderCompliance() {
       underwriters.forEach(uw => {
         if (!w.days.some(d => present.has(String(uw).trim().toUpperCase() + '|' + d))) {
           const k = uw + '|' + label;
-          if (!groups[k]) { const p = k.split('|'); groups[k] = { underwriter: p[0], month: p[1], nonDec: 0, commodity: 0, overlong: 0, dupe: 0, tos: new Set() }; }
+          if (!groups[k]) { const p = k.split('|'); groups[k] = { underwriter: p[0], month: p[1], nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, tos: new Set() }; }
           groups[k].nonDec++;
         }
       });
@@ -844,39 +933,39 @@ function renderCompliance() {
   });
   const mval = (m) => { const p = String(m).split(' '); return MON_IDX[p[0]] === undefined ? -1 : (+p[1] * 12 + MON_IDX[p[0]]); };
   const rows = Object.values(groups)
-    .filter(g => (g.nonDec + g.commodity + g.overlong + g.dupe) > 0)
+    .filter(g => (g.nonDec + g.commodity + g.overlong + g.dupe + g.late) > 0)
     .filter(g => compUw === 'ALL' || g.underwriter === compUw)
     .sort((a, b) => a.underwriter.localeCompare(b.underwriter) || mval(a.month) - mval(b.month));
   if (!rows.length) { el.innerHTML = head + '<p>No infractions found.</p>'; return; }
   const NONDEC_WEIGHT = 2;
-  const t = { nonDec: 0, commodity: 0, overlong: 0, dupe: 0, total: 0 };
+  const t = { nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, total: 0 };
   const badMonths = Object.keys(compSources).filter(l => compSources[l] === 'unreachable');
   const srcNote = badMonths.length ? '<p>Note: ' + badMonths.map(m => escHtml(m)).join(', ') + ' sheet(s) unreachable &mdash; showing local data only.</p>' : '';
-  let html = head + srcNote + '<table><tr><th>Underwriter</th><th>Month</th><th>Travel Order</th><th>Non-Declaration of Travel or No-Travel (×2)</th><th>Total Absence viable commodity</th><th>Erroneous Travel Dates</th><th>Duplicate Entry</th><th>Total</th></tr>';
+  let html = head + srcNote + '<table><tr><th>Underwriter</th><th>Month</th><th>Travel Order</th><th>Non-Declaration of Travel or No-Travel (×2)</th><th>Total Absence viable commodity</th><th>Erroneous Travel Dates</th><th>Duplicate Entry</th><th>Late Report</th><th>Total</th></tr>';
   rows.forEach(g => {
     const w = g.nonDec * NONDEC_WEIGHT;
-    const tot = w + g.commodity + g.overlong + g.dupe;
-    t.nonDec += w; t.commodity += g.commodity; t.overlong += g.overlong; t.dupe += g.dupe; t.total += tot;
-    html += `<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${escHtml(g.month)}</td><td class="left">${[...g.tos].map(o => escHtml(o)).join('; ') || '&mdash;'}</td><td>${w}</td><td>${g.commodity}</td><td>${g.overlong}</td><td>${g.dupe}</td><td><strong>${tot}</strong></td></tr>`;
+    const tot = w + g.commodity + g.overlong + g.dupe + g.late;
+    t.nonDec += w; t.commodity += g.commodity; t.overlong += g.overlong; t.dupe += g.dupe; t.late += g.late; t.total += tot;
+    html += `<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${escHtml(g.month)}</td><td class="left">${[...g.tos].map(o => escHtml(o)).join('; ') || '&mdash;'}</td><td>${w}</td><td>${g.commodity}</td><td>${g.overlong}</td><td>${g.dupe}</td><td>${g.late}</td><td><strong>${tot}</strong></td></tr>`;
   });
-  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td></td><td></td><td>${t.nonDec}</td><td>${t.commodity}</td><td>${t.overlong}</td><td>${t.dupe}</td><td><strong>${t.total}</strong></td></tr>`;
+  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td></td><td></td><td>${t.nonDec}</td><td>${t.commodity}</td><td>${t.overlong}</td><td>${t.dupe}</td><td>${t.late}</td><td><strong>${t.total}</strong></td></tr>`;
   html += '</table>';
   const assessTotal = (t) => t >= 10 ? 'Subject for Memorandum' : t >= 4 ? 'Subject for Reprimand' : t >= 1 ? 'Subject for Admonition' : '—';
   const uwTotals = {};
   rows.forEach(g => {
-    if (!uwTotals[g.underwriter]) uwTotals[g.underwriter] = { underwriter: g.underwriter, nonDec: 0, commodity: 0, overlong: 0, dupe: 0 };
+    if (!uwTotals[g.underwriter]) uwTotals[g.underwriter] = { underwriter: g.underwriter, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0 };
     const u = uwTotals[g.underwriter];
-    u.nonDec += g.nonDec * NONDEC_WEIGHT; u.commodity += g.commodity; u.overlong += g.overlong; u.dupe += g.dupe;
+    u.nonDec += g.nonDec * NONDEC_WEIGHT; u.commodity += g.commodity; u.overlong += g.overlong; u.dupe += g.dupe; u.late += g.late;
   });
   const urows = Object.values(uwTotals).sort((a, b) => a.underwriter.localeCompare(b.underwriter));
-  const gt = { nonDec: 0, commodity: 0, overlong: 0, dupe: 0, total: 0 };
-  html += '<h3>Infraction Assessment per Underwriter</h3><table><tr><th>Underwriter</th><th>Non-Declaration of Travel or No-Travel (×2)</th><th>Total Absence viable commodity</th><th>Erroneous Travel Dates</th><th>Duplicate Entry</th><th>Total</th><th>Assessment</th></tr>';
+  const gt = { nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, total: 0 };
+  html += '<h3>Infraction Assessment per Underwriter</h3><table><tr><th>Underwriter</th><th>Non-Declaration of Travel or No-Travel (×2)</th><th>Total Absence viable commodity</th><th>Erroneous Travel Dates</th><th>Duplicate Entry</th><th>Late Report</th><th>Total</th><th>Assessment</th></tr>';
   urows.forEach(u => {
-    const utot = u.nonDec + u.commodity + u.overlong + u.dupe;
-    gt.nonDec += u.nonDec; gt.commodity += u.commodity; gt.overlong += u.overlong; gt.dupe += u.dupe; gt.total += utot;
-    html += `<tr><td class="left"><strong>${escHtml(u.underwriter)}</strong></td><td>${u.nonDec}</td><td>${u.commodity}</td><td>${u.overlong}</td><td>${u.dupe}</td><td><strong>${utot}</strong></td><td>${assessTotal(utot)}</td></tr>`;
+    const utot = u.nonDec + u.commodity + u.overlong + u.dupe + u.late;
+    gt.nonDec += u.nonDec; gt.commodity += u.commodity; gt.overlong += u.overlong; gt.dupe += u.dupe; gt.late += u.late; gt.total += utot;
+    html += `<tr><td class="left"><strong>${escHtml(u.underwriter)}</strong></td><td>${u.nonDec}</td><td>${u.commodity}</td><td>${u.overlong}</td><td>${u.dupe}</td><td>${u.late}</td><td><strong>${utot}</strong></td><td>${assessTotal(utot)}</td></tr>`;
   });
-  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td>${gt.nonDec}</td><td>${gt.commodity}</td><td>${gt.overlong}</td><td>${gt.dupe}</td><td><strong>${gt.total}</strong></td><td>&mdash;</td></tr>`;
+  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td>${gt.nonDec}</td><td>${gt.commodity}</td><td>${gt.overlong}</td><td>${gt.dupe}</td><td>${gt.late}</td><td><strong>${gt.total}</strong></td><td>&mdash;</td></tr>`;
   html += '</table>';
   el.innerHTML = html;
 }
@@ -955,6 +1044,7 @@ async function fetchFromSheet() {
             if (c.type==='date' && typeof v==='string' && v.length>10) v = v.slice(0,10);
             row[c.key] = v;
           });
+          row.submittedAt = (r['Submitted At'] && String(r['Submitted At']).slice(0,10)) || '';
           row._submitted = true;
           return {...row,_id:++rowIdCounter};
         });
@@ -1033,6 +1123,13 @@ function updateCountdown() {
   target.setDate(target.getDate() + daysToTuesday);
   target.setHours(23, 59, 0, 0);
 
+  const start = new Date(target);
+  start.setDate(start.getDate() - 6);
+  const fmtD = (d) => ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()] + ' ' + d.getDate();
+  let range = fmtD(start) + ' – ' + fmtD(target);
+  if (start.getFullYear() !== target.getFullYear()) range += ', ' + target.getFullYear();
+  document.getElementById('inputPeriod').textContent = 'Input period: ' + range;
+
   const diff = target - now;
   if (diff <= 0) {
     document.getElementById('countdown').textContent = '00:00:00';
@@ -1052,8 +1149,51 @@ function updateCountdown() {
 document.getElementById('currentMonthLabel').textContent =
   new Date().toLocaleString('en-US',{month:'long'})+' '+new Date().getFullYear();
 
+function showDisclaimer() { document.getElementById('disclaimerModal').classList.add('show'); }
+function acknowledgeDisclaimer() { document.getElementById('disclaimerModal').classList.remove('show'); }
+function togglePass() { const i = document.getElementById('loginPass'); if (i) i.type = (i.type === 'password' ? 'text' : 'password'); }
+function attemptLogin() {
+  const input = document.getElementById('loginPass');
+  const err = document.getElementById('loginError');
+  const found = CREDENTIALS.find(c => input.value === c.password);
+  if (!found) { err.textContent = 'Incorrect password. Try again.'; input.value = ''; input.focus(); return; }
+  sessionUser = { name: found.name, role: found.role };
+  try { sessionStorage.setItem('acc_session', JSON.stringify(sessionUser)); } catch(e) {}
+  document.getElementById('loginModal').classList.remove('show');
+  updateSessionBadge();
+  showDisclaimer();
+}
+function signOut() {
+  sessionUser = null;
+  try { sessionStorage.removeItem('acc_session'); } catch(e) {}
+  updateSessionBadge();
+  document.getElementById('loginModal').classList.add('show');
+  const input = document.getElementById('loginPass');
+  if (input) { input.value = ''; input.focus(); }
+}
+function updateSessionBadge() {
+  const badge = document.getElementById('sessionBadge');
+  const btn = document.getElementById('signOutBtn');
+  if (badge) badge.textContent = sessionUser ? sessionUser.name + (isAdmin() ? ' (Admin)' : '') : '—';
+  if (btn) btn.style.display = sessionUser ? '' : 'none';
+}
+function initAccess() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem('acc_session') || 'null');
+    if (saved && saved.name && CREDENTIALS.some(c => c.name === saved.name && c.role === saved.role)) {
+      sessionUser = saved;
+      updateSessionBadge();
+      showDisclaimer();
+      return;
+    }
+  } catch(e) {}
+  sessionUser = null;
+  updateSessionBadge();
+  document.getElementById('loginModal').classList.add('show');
+}
 renderHeaders();
 render();
+initAccess();
 fetchFromSheet();
 updateCountdown();
 setInterval(updateCountdown, 1000);
