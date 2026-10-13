@@ -60,8 +60,11 @@
   tbody tr:nth-child(even) td { background: #f8fafc; }
   tbody tr:nth-child(even) td.sticky-col { background: #f8fafc !important; }
   tr:hover td { background: #f0fdf4; }
-  td input, td select, td textarea { width: 100%; border: none; outline: none; padding: 7px 8px; font-size: 12px; font-family: inherit; background: transparent; resize: vertical; min-height: 36px; border-radius: 4px; transition: background 0.15s; text-align: center; }
-  td input:focus, td select:focus, td textarea:focus { background: var(--brand-tint); }
+  td input, td select, td textarea { width: 100%; border: 1px solid #cbd5e1; outline: none; padding: 7px 8px; font-size: 12px; font-family: inherit; background: transparent; resize: vertical; min-height: 36px; border-radius: 4px; transition: background 0.15s, border-color 0.15s; text-align: center; }
+  td input[type="checkbox"] { border: none; }
+  td input:focus, td select:focus, td textarea:focus { background: var(--brand-tint); outline: 2px solid var(--brand); outline-offset: -2px; box-shadow: 0 0 0 4px rgba(22,163,74,0.18); }
+  tbody tr:focus-within td { background: var(--brand-tint) !important; }
+  tbody tr:focus-within td.missing { background: #fef2f2 !important; box-shadow: inset 3px 0 0 var(--danger); }
   td textarea[readonly] { background: #f1f5f9; color: #64748b; cursor: pointer; user-select: none; }
   td textarea[readonly]:hover { background: #e2e8f0; }
   td input.error, td select.error { background: #fef2f2; }
@@ -171,7 +174,7 @@
     <input class="search-box" id="searchBox" placeholder="Search entries…" oninput="filterTable()">
     <span class="row-count">Rows: <strong id="rowCount">0</strong> &middot; <span id="saveStatus">starting...</span></span>
   </div>
-  <div id="tableWrapper" style="overflow-x:auto;">
+  <div id="tableWrapper" style="overflow:auto;max-height:65vh;">
     <table id="sheet">
       <thead>
         <tr id="headerRow"></tr>
@@ -225,7 +228,7 @@ const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzfeoD4V3f-uuzN
 // Replace every CHANGE-ME value with the real password before distributing this file.
 const CREDENTIALS = [
   { password: 'PCICRegion10', name: 'Limited Access', role: 'limited' },
-  { password: 'Zareenah', name: 'Administrator', role: 'admin' },
+  { password: 'Zareenah7', name: 'Administrator', role: 'admin' },
 ];
 let sessionUser = null;
 function isAdmin() { return !!(sessionUser && sessionUser.role === 'admin'); }
@@ -237,7 +240,7 @@ const COLS = [
   { key: 'endDate', header: 'End Date', width: 100, type: 'date', required: true },
   { key: 'venue', header: 'Venue or Location', width: 160, type: 'text', required: true, maxlen: 100 },
   { key: 'agency', header: 'Agency/IA/Coop/etc.', width: 160, type: 'text', required: true, maxlen: 100 },
-  { key: 'purpose', header: 'Purpose/Reason of Meeting', width: 200, type: 'textarea', required: true, maxlen: 200 },
+  { key: 'purpose', header: 'Purpose/Reason of Meeting', width: 200, type: 'select', required: true },
   { key: 'contact', header: 'Contact Person w/ Designation', width: 180, type: 'textarea', required: true, maxlen: 100 },
   { key: 'male', header: 'Male', width: 70, type: 'number', required: true },
   { key: 'female', header: 'Female', width: 70, type: 'number', required: true },
@@ -285,6 +288,12 @@ let compSources = {};
 
 
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function isBlankRow(row) {
+  return COLS.every(c => {
+    const v = row[c.key];
+    return v === '' || v === false || v === 0 || v === null || v === undefined || (typeof v === 'string' && !v.trim());
+  });
+}
 
 function renderHeaders() {
   const tr = document.getElementById('headerRow');
@@ -337,7 +346,7 @@ function render() {
       const stick = ci === 0 ? ' class="sticky-col" style="left:28px;background:#fff;"' : '';
       const dis = (noTravel && c.key !== 'travelOrder' && c.key !== 'startDate' && c.key !== 'endDate' && c.key !== 'underwriter' && !c.locked) ? ' disabled' : '';
       if (c.type === 'select') {
-        cells += `<td${stick}><select onchange="updateField(${row._id},'${c.key}',this.value)"${dis}>${makeOptions(underwriters,row[c.key])}</select></td>`;
+        cells += `<td${stick}><select onchange="updateField(${row._id},'${c.key}',this.value)"${dis}>${makeOptions(c.key==='purpose'?PURPOSES:underwriters,row[c.key],c.key==='purpose'?'Select activity':'Choose name')}</select></td>`;
       } else if (c.type === 'date') {
         cells += `<td><input type="date" value="${row[c.key]||''}" oninput="updateField(${row._id},'${c.key}',this.value)"${dis}></td>`;
       } else if (c.type === 'textarea') {
@@ -412,8 +421,9 @@ function updateUwFilter() {
   sel.innerHTML = '<option value="">All Underwriters</option>' + uws.map(u => `<option value="${u}"${u===current?' selected':''}>${u}</option>`).join('');
 }
 
-function makeOptions(list, selected) {
-  return `<option value="" ${!selected?'selected':''}>Name</option>` + list.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
+const PURPOSES = ['Conduct Orientation and Enrollment','Attend Meeting or Convergence','Speaker in Assembly/Training/Workshop','Join Caravan Registration','Eligibility/Post Planting Inspection','Stocking Validation','PCIC Representative'];
+function makeOptions(list, selected, placeholder) {
+  return `<option value="" ${!selected?'selected':''}>${placeholder || 'Name'}</option>` + list.map(v => `<option value="${v}"${v===selected?' selected':''}>${v}</option>`).join('');
 }
 
 function sortBy(colIdx) {
@@ -427,6 +437,14 @@ function saveToLocal() { localStorage.setItem('acc_data', JSON.stringify(data.ma
 function updateField(id, field, value) {
   const row = data.find(r => r._id === id);
   if (row) {
+    if (field === 'travelOrder' || field === 'agency') value = String(value).toUpperCase();
+    else if (field === 'venue' || field === 'contact' || field === 'feedback') value = String(value).replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1));
+    const active = document.activeElement;
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+      const s = active.selectionStart, e = active.selectionEnd;
+      active.value = value;
+      try { active.setSelectionRange(s, e); } catch(err) {}
+    }
     const prev = row[field];
     row[field] = value;
     if (field === 'travelOrder' && prev !== value && (value === 'NO TRAVEL' || prev === 'NO TRAVEL')) {
@@ -533,6 +551,27 @@ function showToast(msg) {
 function getMissingFields(row) {
   if (row.travelOrder === 'NO TRAVEL') return [];
   return COLS.filter(c => c.required).filter(c => !row[c.key] || (typeof row[c.key]==='string' && !row[c.key].trim()));
+}
+
+const AGENCY_ORGS = ['PCIC','MAO','CAO','PAO','PCA','PAVO','BFAR','PVET','CITY','VET','LGU','DTI','NIA'];
+const AGENCY_FILLERS = ['AND','&','OF','THE','AT','SA','NG','DE','DEL','FOR','WITH'];
+function agencyLocationOK(agency) {
+  const s = (agency && String(agency).trim()) || '';
+  if (!s) return true;
+  const up = s.toUpperCase();
+  if (/^(BARANGAY|BRGY)\b/.test(up)) return false;
+  const toks = up.split(/[\s\/\-.,;:&()]+/).filter(t => t && AGENCY_FILLERS.indexOf(t) === -1);
+  if (!toks.length) return true;
+  return !toks.every(t => AGENCY_ORGS.indexOf(t) !== -1);
+}
+
+const VENUE_ORGS = ['CIC','MAO','CAO','PAO','PCA','PAVO','BFAR','PVET','LGU','DTI','NIA'];
+function venueLocationOK(venue) {
+  const s = (venue && String(venue).trim()) || '';
+  if (!s) return true;
+  const up = s.toUpperCase();
+  if (/^CITY VET\b/.test(up)) return false;
+  return !/^(CIC|MAO|CAO|PAO|PCA|PAVO|BFAR|PVET|LGU|DTI|NIA)\b/.test(up);
 }
 
 function getMonth(dateStr) {
@@ -768,7 +807,7 @@ async function fetchSheetMonth(label) {
     });
     row.submittedAt = (r['Submitted At'] && String(r['Submitted At']).slice(0,10)) || '';
     return row;
-  });
+  }).filter(r => !isBlankRow(r));
   const localFallback = () => data.filter(r => r._submitted && getMonth(r.startDate) === label);
   try {
     const resp = await fetch(APPS_SCRIPT_URL + '?month=' + encodeURIComponent(label));
@@ -1019,7 +1058,7 @@ async function fetchFromSheet() {
           row.submittedAt = (r['Submitted At'] && String(r['Submitted At']).slice(0,10)) || '';
           row._submitted = true;
           return {...row,_id:++rowIdCounter};
-        });
+        }).filter(r => !isBlankRow(r));
         autoTotalAll(); updateUwFilter(); render();
         sheetCache = {};
         status.textContent='synced'; saveToLocal();
@@ -1049,6 +1088,16 @@ async function submitRow(id) {
   const missing = getMissingFields(row);
   if (missing.length) {
     showToast('Fill in: ' + missing.map(f => f.header).join(', '));
+    return;
+  }
+
+  if (row.travelOrder !== 'NO TRAVEL' && !agencyLocationOK(row.agency)) {
+    showToast('please indicate the city/municipality/province where the office is located');
+    return;
+  }
+
+  if (row.travelOrder !== 'NO TRAVEL' && !venueLocationOK(row.venue)) {
+    showToast('please indicate the actual venue or location of the activity');
     return;
   }
 
