@@ -222,7 +222,7 @@
 </div>
 
 <script>
-const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzfeoD4V3f-uuzNkMq7tgb3tQW88e56WPYSUi4qfgcwHYCfRhcRJuMllH1GBL8X5us/exec";
+const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw7N0QVCKFHqoVmaLuvJAOY0gJhFkdIOA3d3p9cjHDfsPeZqfv13ob7CHDBE-lskmwN/exec";
 
 // ===== PAGE LOGIN (DETERRENT ONLY — passwords are visible in page source; real access control is server-side) =====
 // Replace every CHANGE-ME value with the real password before distributing this file.
@@ -285,6 +285,7 @@ let compError = false;
 let compReqSeq = 0;
 let compUw = '';
 let compSources = {};
+let compQ = currentQuarterKey();
 
 
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -553,7 +554,7 @@ function getMissingFields(row) {
   return COLS.filter(c => c.required).filter(c => !row[c.key] || (typeof row[c.key]==='string' && !row[c.key].trim()));
 }
 
-const AGENCY_ORGS = ['PCIC','MAO','CAO','PAO','PCA','PAVO','BFAR','PVET','CITY','VET','LGU','DTI','NIA'];
+const AGENCY_ORGS = ['PCIC','MAO','CAO','PAO','PCA','PAVO','BFAR','PVET','CITY','VET','LGU','DTI','NIA','ATI','PCC','NDA','PAGRO','DA','OPAG','DAR'];
 const AGENCY_FILLERS = ['AND','&','OF','THE','AT','SA','NG','DE','DEL','FOR','WITH'];
 function agencyLocationOK(agency) {
   const s = (agency && String(agency).trim()) || '';
@@ -565,13 +566,13 @@ function agencyLocationOK(agency) {
   return !toks.every(t => AGENCY_ORGS.indexOf(t) !== -1);
 }
 
-const VENUE_ORGS = ['CIC','MAO','CAO','PAO','PCA','PAVO','BFAR','PVET','LGU','DTI','NIA'];
+const VENUE_ORGS = ['CIC','MAO','CAO','PAO','PCA','PAVO','BFAR','PVET','LGU','DTI','NIA','ATI','PCC','NDA','PAGRO','DA','OPAG','DAR'];
 function venueLocationOK(venue) {
   const s = (venue && String(venue).trim()) || '';
   if (!s) return true;
   const up = s.toUpperCase();
   if (/^CITY VET\b/.test(up)) return false;
-  return !/^(CIC|MAO|CAO|PAO|PCA|PAVO|BFAR|PVET|LGU|DTI|NIA)\b/.test(up);
+  return !/^(CIC|MAO|CAO|PAO|PCA|PAVO|BFAR|PVET|LGU|DTI|NIA|ATI|PCC|NDA|PAGRO|DA|OPAG|DAR)\b/.test(up);
 }
 
 function getMonth(dateStr) {
@@ -821,6 +822,22 @@ async function fetchSheetMonth(label) {
 
 const MON_IDX = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
 
+function currentQuarterKey() {
+  const now = new Date();
+  return now.getFullYear() + '-Q' + (Math.floor(now.getMonth() / 3) + 1);
+}
+function reportingYearQuarters() {
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const now = new Date();
+  const y = now.getMonth() < 6 ? now.getFullYear() - 1 : now.getFullYear();
+  return [
+    { key: y + '-Q3', label: 'Q3 ' + y + ' (Jul–Sep)', months: [MON[6] + ' ' + y, MON[7] + ' ' + y, MON[8] + ' ' + y] },
+    { key: y + '-Q4', label: 'Q4 ' + y + ' (Oct–Dec)', months: [MON[9] + ' ' + y, MON[10] + ' ' + y, MON[11] + ' ' + y] },
+    { key: (y + 1) + '-Q1', label: 'Q1 ' + (y + 1) + ' (Jan–Mar)', months: [MON[0] + ' ' + (y + 1), MON[1] + ' ' + (y + 1), MON[2] + ' ' + (y + 1)] },
+    { key: (y + 1) + '-Q2', label: 'Q2 ' + (y + 1) + ' (Apr–Jun)', months: [MON[3] + ' ' + (y + 1), MON[4] + ' ' + (y + 1), MON[5] + ' ' + (y + 1)] }
+  ];
+}
+
 function isoDate(d) {
   const m = d.getMonth() + 1, day = d.getDate();
   return d.getFullYear() + '-' + (m < 10 ? '0' : '') + m + '-' + (day < 10 ? '0' : '') + day;
@@ -883,13 +900,25 @@ function compUwChanged() {
   if (!compUw) { compData = []; compError = false; compLoading = false; renderCompliance(); return; }
   loadComplianceData();
 }
+function compQChanged() {
+  const sel = document.getElementById('compQFilter');
+  compQ = sel ? sel.value : compQ;
+  renderCompliance();
+}
 function renderCompliance() {
   const el = document.getElementById('complianceSection');
   const compSel = document.getElementById('compUwFilter');
   if (compSel) compUw = compSel.value;
+  const compQSel = document.getElementById('compQFilter');
+  if (compQSel) compQ = compQSel.value;
+  if (!compQ || !reportingYearQuarters().some(q => q.key === compQ)) compQ = currentQuarterKey();
+  const quarters = reportingYearQuarters();
+  const selQuarter = quarters.find(q => q.key === compQ) || quarters[1];
+  const selQMonths = new Set(selQuarter.months);
+  const compQHtml = '<select id="compQFilter" onchange="compQChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;">' + quarters.map(q => '<option value="' + q.key + '"' + (q.key === compQ ? ' selected' : '') + '>' + escHtml(q.label) + '</option>').join('') + '</select>';
   const compSelHtml = '<select id="compUwFilter" onchange="compUwChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">Select underwriter…</option><option value="ALL"' + (compUw === 'ALL' ? ' selected' : '') + '>All</option>' + [...underwriters].sort().map(u => '<option value="' + u + '"' + (u === compUw ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>';
   const compRefreshHtml = '<button onclick="reloadComplianceData()" style="font-size:11px;padding:2px 10px;border:1px solid #e2e8f0;border-radius:4px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;margin-left:6px;">Refresh</button>';
-  const head = '<h3>Report Infractions ' + compSelHtml + compRefreshHtml + '</h3>';
+  const head = '<h3>Report Infractions ' + compQHtml + compSelHtml + compRefreshHtml + '</h3>';
   if (!compUw) { el.innerHTML = head + '<p>Select an underwriter to load the report.</p>'; return; }
   if (compLoading) { el.innerHTML = head + '<p><span class="spin"></span>Loading…</p>'; return; }
   if (compError && !compData.length) { el.innerHTML = head + '<p>Could not load monthly sheets. Check your connection.</p><p><button onclick="reloadComplianceData()" style="font-size:12px;padding:4px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;">Reconnect</button></p>'; return; }
@@ -923,9 +952,15 @@ function renderCompliance() {
     }
   });
   const labels = sheetMonthOptions();
+  const skippedW1 = [];
   labels.forEach(label => {
     const parts = label.split(' ');
-    monthWeeks(+parts[1], MON_IDX[parts[0]]).forEach(w => {
+    const yr = +parts[1], mi = MON_IDX[parts[0]];
+    let weeks = monthWeeks(yr, mi);
+    const dow = new Date(yr, mi, 1).getDay();
+    const stubSize = dow === 0 ? 0 : 6 - dow;
+    if (dow === 4 && stubSize >= 3 && stubSize < 5 && weeks.length) { weeks = weeks.slice(1); skippedW1.push(label); }
+    weeks.forEach(w => {
       underwriters.forEach(uw => {
         if (!w.days.some(d => present.has(String(uw).trim().toUpperCase() + '|' + d))) {
           const k = uw + '|' + label;
@@ -944,15 +979,21 @@ function renderCompliance() {
   });
   const mval = (m) => { const p = String(m).split(' '); return MON_IDX[p[0]] === undefined ? -1 : (+p[1] * 12 + MON_IDX[p[0]]); };
   const rows = Object.values(groups)
+    .filter(g => selQMonths.has(g.month))
     .filter(g => (g.nonDec + g.commodity + g.overlong + g.dupe + g.late) > 0)
     .filter(g => compUw === 'ALL' || g.underwriter === compUw)
     .sort((a, b) => a.underwriter.localeCompare(b.underwriter) || mval(a.month) - mval(b.month));
-  if (!rows.length) { el.innerHTML = head + '<p>No infractions found.</p>'; return; }
   const NONDEC_WEIGHT = 2;
-  const t = { nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, total: 0 };
+  let html = head;
   const badMonths = Object.keys(compSources).filter(l => compSources[l] === 'unreachable');
-  const srcNote = badMonths.length ? '<p>Note: ' + badMonths.map(m => escHtml(m)).join(', ') + ' sheet(s) unreachable &mdash; showing local data only.</p>' : '';
-  let html = head + srcNote + '<table><tr><th>Underwriter</th><th>Month</th><th>Travel Order</th><th>Non-Declaration of Travel or No-Travel (×2)</th><th>Total Absence viable commodity</th><th>Erroneous Travel Dates</th><th>Duplicate Entry</th><th>Late Report</th><th>Total</th></tr>';
+  if (badMonths.length) html += '<p>Note: ' + badMonths.map(m => escHtml(m)).join(', ') + ' sheet(s) unreachable &mdash; showing local data only.</p>';
+  const selSkips = skippedW1.filter(m => selQMonths.has(m));
+  if (selSkips.length) html += '<p>Note: W1 stub excluded for Thursday-start month(s): ' + selSkips.map(m => escHtml(m)).join(', ') + '.</p>';
+  if (!rows.length) {
+    html += '<p>No infractions found for ' + escHtml(selQuarter.label) + '.</p>';
+  } else {
+  const t = { nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, total: 0 };
+  html += '<table><tr><th>Underwriter</th><th>Month</th><th>Travel Order</th><th>Non-Declaration of Travel or No-Travel (×2)</th><th>Total Absence viable commodity</th><th>Erroneous Travel Dates</th><th>Duplicate Entry</th><th>Late Report</th><th>Total</th></tr>';
   rows.forEach(g => {
     const w = g.nonDec * NONDEC_WEIGHT;
     const tot = w + g.commodity + g.overlong + g.dupe + g.late;
@@ -970,7 +1011,7 @@ function renderCompliance() {
   });
   const urows = Object.values(uwTotals).sort((a, b) => a.underwriter.localeCompare(b.underwriter));
   const gt = { nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, total: 0 };
-  html += '<h3>Infraction Assessment per Underwriter</h3><table><tr><th>Underwriter</th><th>Non-Declaration of Travel or No-Travel (×2)</th><th>Total Absence viable commodity</th><th>Erroneous Travel Dates</th><th>Duplicate Entry</th><th>Late Report</th><th>Total</th><th>Assessment</th></tr>';
+  html += '<h3>Infraction Assessment per Underwriter (' + escHtml(selQuarter.label) + ')</h3><table><tr><th>Underwriter</th><th>Non-Declaration of Travel or No-Travel (×2)</th><th>Total Absence viable commodity</th><th>Erroneous Travel Dates</th><th>Duplicate Entry</th><th>Late Report</th><th>Total</th><th>Assessment</th></tr>';
   urows.forEach(u => {
     const utot = u.nonDec + u.commodity + u.overlong + u.dupe + u.late;
     gt.nonDec += u.nonDec; gt.commodity += u.commodity; gt.overlong += u.overlong; gt.dupe += u.dupe; gt.late += u.late; gt.total += utot;
@@ -978,6 +1019,7 @@ function renderCompliance() {
   });
   html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td>${gt.nonDec}</td><td>${gt.commodity}</td><td>${gt.overlong}</td><td>${gt.dupe}</td><td>${gt.late}</td><td><strong>${gt.total}</strong></td><td>&mdash;</td></tr>`;
   html += '</table>';
+  }
   el.innerHTML = html;
 }
 
