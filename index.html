@@ -245,7 +245,7 @@ const COLS = [
   { key: 'male', header: 'Male', width: 70, type: 'number', required: true },
   { key: 'female', header: 'Female', width: 70, type: 'number', required: true },
   { key: 'total', header: 'Total', width: 55, type: 'number', required: true },
-  { key: 'brochure', header: 'Brochure', width: 55, type: 'number' },
+  { key: 'brochure', header: 'IEC Materials', width: 100, type: 'number' },
   { key: 'rice', header: 'Rice', width: 40, type: 'checkbox' },
   { key: 'corn', header: 'Corn', width: 40, type: 'checkbox' },
   { key: 'hvc', header: 'HVC', width: 40, type: 'checkbox' },
@@ -379,7 +379,7 @@ function render() {
   document.getElementById('rowCount').textContent = filtered.length;
   document.getElementById('summary').innerHTML = `
     <span><strong>Male:</strong> ${totalMale}</span><span><strong>Female:</strong> ${totalFemale}</span>
-    <span><strong>Total Persons:</strong> ${totalTotal}</span><span><strong>Brochure:</strong> ${totalBrochure}</span>
+    <span><strong>Total Persons:</strong> ${totalTotal}</span><span><strong>IEC Materials:</strong> ${totalBrochure}</span>
     <span><strong>Rice:</strong> ${totalRice}</span><span><strong>Corn:</strong> ${totalCorn}</span>
     <span><strong>HVC:</strong> ${totalHvc}</span><span><strong>LIV:</strong> ${totalLiv}</span>
     <span><strong>FSH:</strong> ${totalFsh}</span><span><strong>NCI:</strong> ${totalNci}</span>
@@ -472,7 +472,7 @@ function updateSummary() {
   });
   document.getElementById('summary').innerHTML =
     `<span><strong>Male:</strong> ${m}</span><span><strong>Female:</strong> ${f}</span>`+
-    `<span><strong>Total Persons:</strong> ${t}</span><span><strong>Brochure:</strong> ${b}</span>`+
+    `<span><strong>Total Persons:</strong> ${t}</span><span><strong>IEC Materials:</strong> ${b}</span>`+
     `<span><strong>Rice:</strong> ${rc}</span><span><strong>Corn:</strong> ${cc}</span>`+
     `<span><strong>HVC:</strong> ${hc}</span><span><strong>LIV:</strong> ${lc}</span>`+
     `<span><strong>FSH:</strong> ${fc}</span><span><strong>NCI:</strong> ${nc}</span>`+
@@ -763,7 +763,9 @@ function renderSheetSummary() {
   let sheetUw = sheetSel ? sheetSel.value : '';
   const sheetUws = [...new Set(prevMonthData.map(r => r.underwriter).filter(Boolean))].sort();
   if (sheetUw && sheetUws.indexOf(sheetUw) === -1) sheetUw = '';
-  const monthOpts = sheetMonthOptions();
+  const cur = sheetMonthOptions()[0];
+  const monthOpts = sheetMonthOptions().filter(m => m !== cur);
+  if (sheetMonth === cur) sheetMonth = '';
   if (sheetMonth && monthOpts.indexOf(sheetMonth) === -1) monthOpts.unshift(sheetMonth);
   const monthSelHtml = '<select id="sheetMonthFilter" onchange="sheetMonthChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">Select month…</option>' + monthOpts.map(m => '<option value="' + m + '"' + (m === sheetMonth ? ' selected' : '') + '>' + m + '</option>').join('') + '</select>';
   const sheetSelHtml = '<select id="sheetUwFilter" onchange="renderSheetSummary()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">All</option>' + sheetUws.map(u => '<option value="' + escHtml(u) + '"' + (u === sheetUw ? ' selected' : '') + '>' + escHtml(u) + '</option>').join('') + '</select>';
@@ -1069,7 +1071,7 @@ function renderDashboard() {
   const body = document.getElementById('dashBody');
   if (!rows.length) { body.innerHTML = '<p>No submitted data found in the monthly sheets for this period.</p>'; return; }
   const t = { farmers: 0, brochure: 0, travelOrders: 0, days: 0, rice: 0, corn: 0, hvc: 0, liv: 0, fsh: 0, nci: 0, tip: 0 };
-  let html = '<table><tr><th>Underwriter</th><th>Farmers</th><th>Brochures</th><th>Travel Orders</th><th>Days Traveled</th><th>Rice</th><th>Corn</th><th>HVC</th><th>LIV</th><th>FSH</th><th>NCI</th><th>TIP</th></tr>';
+  let html = '<table><tr><th>Underwriter</th><th>Farmers</th><th>IEC Materials</th><th>Travel Orders</th><th>Days Traveled</th><th>Rice</th><th>Corn</th><th>HVC</th><th>LIV</th><th>FSH</th><th>NCI</th><th>TIP</th></tr>';
   rows.forEach(g => {
     const to = g.travelOrders.size;
     t.farmers += g.farmers; t.brochure += g.brochure; t.travelOrders += to; t.days += g.days;
