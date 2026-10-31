@@ -71,6 +71,7 @@
   tr:hover td { background: var(--table-hover); }
   tr:hover td.sticky-col { background: var(--table-hover) !important; }
   td input, td select, td textarea { width: 100%; border: 1px solid var(--input-border); outline: none; padding: 7px 8px; font-size: 12px; font-family: inherit; background: var(--input-bg); color: var(--body); resize: vertical; min-height: 36px; border-radius: 4px; transition: background 0.15s, border-color 0.15s, box-shadow 0.15s; text-align: center; }
+  td input[type="date"] { cursor: pointer; }
   td input[type="checkbox"] { border: none; }
   td input:focus, td select:focus, td textarea:focus { background: var(--brand-tint); outline: 2px solid var(--brand); outline-offset: -2px; box-shadow: 0 0 0 3px rgba(5,150,105,0.18); }
   tbody tr:focus-within td { background: var(--brand-tint) !important; }
@@ -119,6 +120,35 @@
   .weekly-summary, .sheet-summary { margin-top: 20px; overflow-x: auto; }
   .weekly-summary h3, .sheet-summary h3 { color: var(--ink); font-size: 14px; font-weight: 600; margin-bottom: 10px; border-left: 4px solid var(--brand); padding-left: 10px; }
   .weekly-summary table, .sheet-summary table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 600px; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .top-scrollbar-wrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+    height: 12px;
+    margin: 6px 0 3px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--muted) var(--line);
+    border-radius: 4px;
+  }
+  .top-scrollbar-wrap::-webkit-scrollbar {
+    height: 10px;
+  }
+  .top-scrollbar-wrap::-webkit-scrollbar-thumb {
+    background: var(--muted);
+    border-radius: 999px;
+  }
+  .top-scrollbar-wrap::-webkit-scrollbar-track {
+    background: var(--line);
+    border-radius: 999px;
+  }
+  body.dark-mode .top-scrollbar-wrap::-webkit-scrollbar-track {
+    background: #1e293b;
+  }
+  body.dark-mode .top-scrollbar-wrap::-webkit-scrollbar-thumb {
+    background: #475569;
+  }
+  @media print {
+    .top-scrollbar-wrap { display: none !important; }
+  }
   .th-info-btn {
     display: inline-flex;
     align-items: center;
@@ -214,8 +244,6 @@
 </style>
 </head>
 <body>
-<style>@media print { .offline-backup-banner { display: none !important; } }</style>
-<div class="offline-backup-banner" style="margin:-24px -24px 16px;background:#b45309;color:#fff;font:600 12px/1.7 'Segoe UI',Arial,sans-serif;text-align:center;padding:5px 10px;letter-spacing:.3px;">OFFLINE BACKUP &middot; snapshot Oct 29, 2026 3:13 PM &middot; read-only</div>
 <div class="container">
   <div class="header">
     <div class="header-top">
@@ -256,8 +284,15 @@
       <select class="filter-select" id="uwFilter" onchange="filterTable()">
         <option value="">All Underwriters</option>
       </select>
+      <select class="filter-select" id="monthFilter" onchange="filterTable()">
+        <option value="CURRENT">Current Month</option>
+        <option value="ALL">All Months</option>
+      </select>
       <input class="search-box" id="searchBox" placeholder="Search underwriter, travel order, venue, agency…" oninput="filterTable()">
       <span class="row-count">Rows: <strong id="rowCount">0</strong> &middot; <span id="saveStatus">starting...</span></span>
+    </div>
+    <div id="topScrollWrapper" class="top-scrollbar-wrap" style="display:none;" title="Side-scroll table">
+      <div id="topScrollDummy" style="height:1px;"></div>
     </div>
     <div id="tableWrapper" style="overflow:auto;max-height:65vh;">
       <table id="sheet">
@@ -380,6 +415,9 @@ const CREDENTIALS = [
 let sessionUser = null;
 function isAdmin() { return !!(sessionUser && sessionUser.role === 'admin'); }
 
+const MON_IDX = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+const mval = (m) => { const p = String(m || '').split(' '); return MON_IDX[p[0]] === undefined ? -1 : (+p[1] * 12 + MON_IDX[p[0]]); };
+
 const COLS = [
   { key: 'underwriter', header: 'Underwriter', width: 130, type: 'select', required: true },
   { key: 'travelOrder', header: 'Travel Order', width: 100, type: 'text', required: true, maxlen: 30 },
@@ -446,6 +484,67 @@ function isNoTravel(to) {
   return typeof to === 'string' && to.trim().toUpperCase().startsWith('NO TRAVEL');
 }
 
+function openDatePicker(el, evt) {
+  if (evt) {
+    if (evt.key === 'Tab' || evt.key === 'Escape' || evt.key === 'Enter') return;
+    if (evt.key === 'Backspace' || evt.key === 'Delete') {
+      el.value = '';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+    evt.preventDefault();
+  }
+  if (el && typeof el.showPicker === 'function') {
+    try { el.showPicker(); } catch (err) {}
+  }
+}
+
+const safeRaf = (fn) => typeof requestAnimationFrame === 'function' ? requestAnimationFrame(fn) : setTimeout(fn, 16);
+let isSyncingTop = false;
+let isSyncingBottom = false;
+
+function syncTopScroll() {
+  const table = document.getElementById('sheet');
+  const topWrap = document.getElementById('topScrollWrapper');
+  const topDummy = document.getElementById('topScrollDummy');
+  const tableWrap = document.getElementById('tableWrapper');
+  if (!table || !topWrap || !topDummy || !tableWrap) return;
+
+  const scrollW = table.scrollWidth;
+  const clientW = tableWrap.clientWidth;
+
+  if (scrollW > clientW + 10) {
+    topWrap.style.display = 'block';
+    topDummy.style.width = scrollW + 'px';
+    topWrap.scrollLeft = tableWrap.scrollLeft;
+  } else {
+    topWrap.style.display = 'none';
+  }
+}
+
+function initTopScrollSync() {
+  const topWrap = document.getElementById('topScrollWrapper');
+  const tableWrap = document.getElementById('tableWrapper');
+  if (!topWrap || !tableWrap) return;
+
+  topWrap.addEventListener('scroll', () => {
+    if (isSyncingBottom) return;
+    isSyncingTop = true;
+    tableWrap.scrollLeft = topWrap.scrollLeft;
+    safeRaf(() => { isSyncingTop = false; });
+  }, { passive: true });
+
+  tableWrap.addEventListener('scroll', () => {
+    if (isSyncingTop) return;
+    isSyncingBottom = true;
+    topWrap.scrollLeft = tableWrap.scrollLeft;
+    safeRaf(() => { isSyncingBottom = false; });
+  }, { passive: true });
+
+  window.addEventListener('resize', syncTopScroll);
+}
+
 function renderHeaders() {
   const tr = document.getElementById('headerRow');
   tr.innerHTML = '<th class="sticky-col-header" style="width:28px;cursor:default;left:0;">#</th>';
@@ -493,7 +592,7 @@ function render() {
       if (c.type === 'select') {
         cells += `<td${stick}><select onchange="updateField(${row._id},'${c.key}',this.value)"${dis}>${makeOptions(c.key==='purpose'?PURPOSES:underwriters,row[c.key],c.key==='purpose'?'Select activity':'Choose name')}</select></td>`;
       } else if (c.type === 'date') {
-        cells += `<td><input type="date" value="${row[c.key]||''}" oninput="updateField(${row._id},'${c.key}',this.value)"${dis}></td>`;
+        cells += `<td><input type="date" value="${row[c.key]||''}" onclick="openDatePicker(this)" onkeydown="openDatePicker(this,event)" oninput="updateField(${row._id},'${c.key}',this.value)" onchange="updateField(${row._id},'${c.key}',this.value)"${dis}></td>`;
       } else if (c.type === 'textarea') {
         const locked = c.locked && !noTravel ? ' readonly' : '';
         cells += `<td><textarea rows="1"${locked} oninput="autoResize(this);updateField(${row._id},'${c.key}',this.value)" onclick="unlockComment(this)" maxlength="${c.maxlen||999}"${dis}>${escHtml(row[c.key]||'')}</textarea></td>`;
@@ -522,6 +621,7 @@ function render() {
   renderCompliance();
   document.getElementById('rowCount').textContent = filtered.length;
   updateSummary();
+  safeRaf(syncTopScroll);
 }
 
 function renderPagination(totalPages, total) {
@@ -545,18 +645,51 @@ function goPage(p) { currentPage = p; render(); }
 function getFilteredData() {
   const search = (document.getElementById('searchBox')?.value || '').toLowerCase();
   const uwFilter = document.getElementById('uwFilter')?.value || '';
+  const monthFilter = document.getElementById('monthFilter')?.value || 'CURRENT';
+  const curMonth = getMonth(new Date().toISOString().slice(0, 10));
+
   return data.filter(r => {
     if (uwFilter && r.underwriter !== uwFilter) return false;
+    if (monthFilter === 'CURRENT') {
+      const startM = getMonth(r.startDate);
+      const endM = getMonth(r.endDate);
+      const isDraft = !startM && !endM;
+      if (!isDraft && startM !== curMonth && endM !== curMonth) return false;
+    } else if (monthFilter !== 'ALL') {
+      const startM = getMonth(r.startDate);
+      const endM = getMonth(r.endDate);
+      const isDraft = !startM && !endM;
+      if (!isDraft && startM !== monthFilter && endM !== monthFilter) return false;
+    }
     if (search) { const s = [r.underwriter,r.travelOrder,r.startDate,r.endDate,r.venue,r.agency,r.purpose,r.contact,r.feedback,r.comment].join(' ').toLowerCase(); if (!s.includes(search)) return false; }
     return true;
   });
 }
 
+function updateMonthFilter() {
+  const sel = document.getElementById('monthFilter');
+  if (!sel) return;
+  const current = sel.value || 'CURRENT';
+  const curMonth = getMonth(new Date().toISOString().slice(0, 10));
+  const months = [...new Set(data.map(r => getMonth(r.startDate) || getMonth(r.endDate)).filter(Boolean))].sort((a, b) => mval(b) - mval(a));
+  let opts = `<option value="CURRENT"${current==='CURRENT'?' selected':''}>Current Month (${curMonth})</option>`;
+  opts += `<option value="ALL"${current==='ALL'?' selected':''}>All Months</option>`;
+  months.forEach(m => {
+    if (m !== curMonth) {
+      opts += `<option value="${escHtml(m)}"${current===m?' selected':''}>${escHtml(m)}</option>`;
+    }
+  });
+  sel.innerHTML = opts;
+}
+
 function updateUwFilter() {
   const sel = document.getElementById('uwFilter');
-  const current = sel.value;
-  const uws = [...new Set(data.map(r => r.underwriter).filter(Boolean))].sort();
-  sel.innerHTML = '<option value="">All Underwriters</option>' + uws.map(u => `<option value="${u}"${u===current?' selected':''}>${u}</option>`).join('');
+  if (sel) {
+    const current = sel.value;
+    const uws = [...new Set(data.map(r => r.underwriter).filter(Boolean))].sort();
+    sel.innerHTML = '<option value="">All Underwriters</option>' + uws.map(u => `<option value="${u}"${u===current?' selected':''}>${u}</option>`).join('');
+  }
+  updateMonthFilter();
 }
 
 const PURPOSES = ['Conduct Orientation and Enrollment','Attend Meeting or Convergence','Speaker in Assembly/Training/Workshop','Join Caravan Registration','Eligibility/Post Planting Inspection','Stocking Validation','PCIC Representative'];
@@ -997,8 +1130,6 @@ async function fetchSheetMonth(label) {
   }
 }
 
-const MON_IDX = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
-
 function currentQuarterKey() {
   const now = new Date();
   return now.getFullYear() + '-Q' + (Math.floor(now.getMonth() / 3) + 1);
@@ -1258,7 +1389,6 @@ function renderCompliance() {
     groups[k].dupe++;
     if (d.to) groups[k].tos.add(d.to);
   });
-  const mval = (m) => { const p = String(m).split(' '); return MON_IDX[p[0]] === undefined ? -1 : (+p[1] * 12 + MON_IDX[p[0]]); };
   const rows = Object.values(groups)
     .filter(g => selQMonths.has(g.month))
     .filter(g => (g.nonDec + g.commodity + g.overlong + g.dupe + g.late) > 0)
@@ -1596,6 +1726,7 @@ renderHeaders();
 render();
 initAccess();
 fetchFromSheet();
+initTopScrollSync();
 updateCountdown();
 setInterval(updateCountdown, 1000);
 </script>
