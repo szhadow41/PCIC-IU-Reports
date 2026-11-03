@@ -993,8 +993,7 @@ function sheetMonthOptions() {
   const arr = [];
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const now = new Date();
-  const y = now.getMonth() < 6 ? now.getFullYear() - 1 : now.getFullYear();
-  const start = new Date(y, 6, 1);
+  const start = new Date(2026, 6, 1); // 3rd Quarter 2026 start (July 1, 2026)
   for (let m = new Date(now.getFullYear(), now.getMonth(), 1); m >= start; m = new Date(m.getFullYear(), m.getMonth() - 1, 1)) {
     arr.push(MONTHS[m.getMonth()] + ' ' + m.getFullYear());
   }
@@ -1096,50 +1095,43 @@ async function fetchSheetMonth(label) {
 
 function currentQuarterKey() {
   const now = new Date();
-  const q = Math.floor(now.getMonth() / 3) + 1;
-  return now.getFullYear() + '-Q' + q;
+  const y = Math.max(2026, now.getFullYear());
+  let q = Math.floor(now.getMonth() / 3) + 1;
+  if (y === 2026 && q < 3) q = 3;
+  return y + '-Q' + q;
 }
 function currentSemesterKey() { return currentQuarterKey(); }
 
 function reportingQuarters() {
   const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const Q_MONTHS = {
+    1: [MON[0], MON[1], MON[2]],
+    2: [MON[3], MON[4], MON[5]],
+    3: [MON[6], MON[7], MON[8]],
+    4: [MON[9], MON[10], MON[11]]
+  };
+  const Q_LABELS = { 1: '1st Quarter', 2: '2nd Quarter', 3: '3rd Quarter', 4: '4th Quarter' };
+  const Q_RANGE  = { 1: 'Jan–Mar', 2: 'Apr–Jun', 3: 'Jul–Sep', 4: 'Oct–Dec' };
+
   const now = new Date();
-  const cy = now.getFullYear();
+  const curYear = Math.max(2026, now.getFullYear());
+  const curQ = now.getFullYear() > 2026 ? (Math.floor(now.getMonth() / 3) + 1) : Math.max(3, Math.floor(now.getMonth() / 3) + 1);
+
   const list = [];
-  [cy, cy - 1].forEach(y => {
-    list.push({
-      key: y + '-Q4',
-      label: '4th Quarter ' + y + ' (Oct–Dec)',
-      shortLabel: '4th Quarter ' + y,
-      year: y,
-      quarter: 4,
-      months: [MON[9] + ' ' + y, MON[10] + ' ' + y, MON[11] + ' ' + y]
-    });
-    list.push({
-      key: y + '-Q3',
-      label: '3rd Quarter ' + y + ' (Jul–Sep)',
-      shortLabel: '3rd Quarter ' + y,
-      year: y,
-      quarter: 3,
-      months: [MON[6] + ' ' + y, MON[7] + ' ' + y, MON[8] + ' ' + y]
-    });
-    list.push({
-      key: y + '-Q2',
-      label: '2nd Quarter ' + y + ' (Apr–Jun)',
-      shortLabel: '2nd Quarter ' + y,
-      year: y,
-      quarter: 2,
-      months: [MON[3] + ' ' + y, MON[4] + ' ' + y, MON[5] + ' ' + y]
-    });
-    list.push({
-      key: y + '-Q1',
-      label: '1st Quarter ' + y + ' (Jan–Mar)',
-      shortLabel: '1st Quarter ' + y,
-      year: y,
-      quarter: 1,
-      months: [MON[0] + ' ' + y, MON[1] + ' ' + y, MON[2] + ' ' + y]
-    });
-  });
+  for (let y = curYear; y >= 2026; y--) {
+    const maxQ = (y === curYear) ? curQ : 4;
+    const minQ = (y === 2026) ? 3 : 1;
+    for (let q = maxQ; q >= minQ; q--) {
+      list.push({
+        key: y + '-Q' + q,
+        label: Q_LABELS[q] + ' ' + y + ' (' + Q_RANGE[q] + ')',
+        shortLabel: Q_LABELS[q] + ' ' + y,
+        year: y,
+        quarter: q,
+        months: Q_MONTHS[q].map(m => m + ' ' + y)
+      });
+    }
+  }
   return list;
 }
 function reportingYearQuarters() { return reportingQuarters(); }
