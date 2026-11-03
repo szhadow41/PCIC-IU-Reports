@@ -231,7 +231,7 @@
     body { background: #fff !important; color: #000 !important; padding: 0 !important; }
     .container { box-shadow: none !important; padding: 0 !important; border: none !important; }
     .toolbar, .pagination, .row-del, .btn-undo, .btn-check, .btn-reset, .btn-dashboard, .nav-tabs, #themeToggleBtn, #signOutBtn { display: none !important; }
-    #secAccomplishment, #secTravel, #secCompliance { display: block !important; }
+    #secAccomplishment, #secTravel, #secCompliance, #secRating { display: block !important; }
     thead { display: table-header-group; }
     tr { break-inside: avoid; }
   }
@@ -275,6 +275,7 @@
     <button class="nav-tab active" data-tab="accomplishment" onclick="switchTab('accomplishment')">📋 Accomplishment Log</button>
     <button class="nav-tab" data-tab="travel" onclick="switchTab('travel')">🚗 Travel Summary</button>
     <button class="nav-tab" data-tab="compliance" onclick="switchTab('compliance')">⚖️ Compliance &amp; Infractions</button>
+    <button class="nav-tab" data-tab="rating" onclick="switchTab('rating')">⭐ Rating Assessment</button>
   </div>
 
   <div id="secAccomplishment">
@@ -310,12 +311,17 @@
   </div>
 
   <div id="secTravel" style="display:none;">
-    <div class="weekly-summary" id="weeklySummary"></div>
-    <div class="sheet-summary" id="sheetSummary"></div>
+    <div class="sheet-summary" id="travelSection"></div>
+    <div id="weeklySummary" style="display:none;"></div>
+    <div id="sheetSummary" style="display:none;"></div>
   </div>
 
   <div id="secCompliance" style="display:none;">
     <div class="sheet-summary" id="complianceSection"></div>
+  </div>
+
+  <div id="secRating" style="display:none;">
+    <div class="sheet-summary" id="ratingSection"></div>
   </div>
 </div>
 <datalist id="travelOrderList">
@@ -422,7 +428,8 @@ let sheetLoading = false;
 let sheetError = false;
 let sheetReqSeq = 0;
 let sheetCache = {};
-let travelUw = '';
+let travelMonth = '';
+let travelUw = 'ALL';
 let travelRows = [];
 let travelLoading = false;
 let travelError = false;
@@ -433,8 +440,10 @@ let compError = false;
 let compReqSeq = 0;
 let compUw = '';
 let compSources = {};
-let compPeriod = currentSemesterKey();
+let compPeriod = currentQuarterKey();
 let compQ = compPeriod;
+let ratingUw = 'ALL';
+let ratingPeriod = currentQuarterKey();
 
 
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
@@ -913,80 +922,505 @@ function isLate(startStr, submittedStr) {
 function mergeTravelRows(localRows, serverRows) {
   const seen = new Set();
   const out = [];
-  const key = (r) => (r.underwriter || '') + '|' + (r.travelOrder || '') + '|' + (r.startDate || '');
+  const key = (r) => (r.underwriter || '') + '|' + (r.travelOrder || '') + '|' + (r.startDate || '') + '|' + (r.endDate || '');
   serverRows.forEach(r => { const k = key(r); if (!seen.has(k)) { seen.add(k); out.push(r); } });
   localRows.forEach(r => { const k = key(r); if (!seen.has(k)) { seen.add(k); out.push(r); } });
   return out;
 }
+
+function formatWeekRange(startIso, endIso) {
+  if (!startIso) return '';
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const s = parseISODate(startIso);
+  const e = parseISODate(endIso) || s;
+  if (!s) return startIso;
+  if (s.getMonth() === e.getMonth()) {
+    return `${MONTHS[s.getMonth()]} ${s.getDate()}–${e.getDate()}, ${s.getFullYear()}`;
+  }
+  return `${MONTHS[s.getMonth()]} ${s.getDate()} – ${MONTHS[e.getMonth()]} ${e.getDate()}, ${s.getFullYear()}`;
+}
+
+function getMonthCalendarWeeks(year, mon) {
+  const weeks = [];
+  const today = isoDate(new Date());
+  const last = new Date(year, mon + 1, 0);
+  const cur = new Date(year, mon, 1);
+  cur.setDate(cur.getDate() - ((cur.getDay() + 6) % 7));
+  let wi = 0;
+  while (cur <= last) {
+    const allDays = [];
+    for (let i = 0; i < 5; i++) {
+      const d = new Date(cur);
+      d.setDate(cur.getDate() + i);
+      if (d.getMonth() === mon) allDays.push(isoDate(d));
+    }
+    if (allDays.length >= 3) {
+      wi++;
+      const isPast = allDays[allDays.length - 1] < today;
+      const isCurrent = allDays.includes(today);
+      const isFuture = allDays[0] > today;
+      weeks.push({
+        label: 'W' + wi,
+        days: allDays,
+        start: allDays[0],
+        end: allDays[allDays.length - 1],
+        isPast: isPast,
+        isCurrent: isCurrent,
+        isFuture: isFuture
+      });
+    }
+    cur.setDate(cur.getDate() + 7);
+  }
+  return weeks;
+}
+
 async function loadTravelData() {
   const id = ++travelReqSeq;
-  const cur = sheetMonthOptions()[0];
-  travelLoading = true; travelError = false; travelRows = [];
-  renderWeeklySummary();
+  if (!travelMonth) travelMonth = sheetMonthOptions()[0];
+  travelLoading = true;
+  travelError = false;
+  renderTravelSummary();
+
   let serverRows = [];
   let err = false;
-  if (cur) {
-    let res = sheetCache[cur];
-    if (!res) { res = await fetchSheetMonth(cur); sheetCache[cur] = res; }
+  if (sheetCache[travelMonth]) {
+    serverRows = sheetCache[travelMonth].rows;
+    err = sheetCache[travelMonth].error;
+  } else {
+    const res = await fetchSheetMonth(travelMonth);
+    sheetCache[travelMonth] = res;
     if (id !== travelReqSeq) return;
-    serverRows = res.rows; err = res.error;
+    serverRows = res.rows;
+    err = res.error;
   }
-  const serverSrc = travelUw === 'ALL' ? serverRows : serverRows.filter(r => r.underwriter === travelUw);
-  travelRows = mergeTravelRows([], serverSrc);
+
+  // Merge with local data from data array for real-time responsiveness
+  const localRows = data.filter(r => (r._submitted || (r.underwriter && r.startDate)) && getMonth(r.startDate) === travelMonth);
+  travelRows = mergeTravelRows(localRows, serverRows);
   travelError = err;
   travelLoading = false;
-  renderWeeklySummary();
+  renderTravelSummary();
 }
+
+function travelMonthChanged() {
+  const mSel = document.getElementById('travelMonthFilter');
+  if (mSel) travelMonth = mSel.value;
+  loadTravelData();
+}
+
 function travelUwChanged() {
-  const travelSel = document.getElementById('travelUwFilter');
-  travelUw = travelSel ? travelSel.value : '';
-  if (!travelUw) { travelRows = []; travelError = false; travelLoading = false; renderWeeklySummary(); return; }
-  loadTravelData();
+  const sel = document.getElementById('travelUwFilter');
+  if (sel) travelUw = sel.value;
+  renderTravelSummary();
 }
+
 function refreshTravelData() {
-  const cur = sheetMonthOptions()[0];
-  if (cur) delete sheetCache[cur];
-  if (!travelUw) { renderWeeklySummary(); return; }
+  if (travelMonth) delete sheetCache[travelMonth];
   loadTravelData();
 }
+
+function selectTravelUnderwriter(uw) {
+  travelUw = uw;
+  const sel = document.getElementById('travelUwFilter');
+  if (sel) sel.value = uw;
+  renderTravelSummary();
+}
+
+function quickDeclareWeek(uw, startDate, endDate) {
+  switchTab('accomplishment');
+  const newRow = Object.assign({}, defaultRow, {
+    underwriter: uw || '',
+    startDate: startDate || '',
+    endDate: endDate || '',
+    travelOrder: ''
+  });
+  data.unshift(newRow);
+  filterTable();
+  showToast(`Added draft row for ${uw} (${startDate} to ${endDate}). Enter Travel Order or NO TRAVEL.`);
+  const wrap = document.getElementById('tableWrapper');
+  if (wrap) wrap.scrollTop = 0;
+}
+
 function renderWeeklySummary() {
-  const travelSel = document.getElementById('travelUwFilter');
-  if (travelSel) travelUw = travelSel.value;
-  const travelUws = [...new Set(travelRows.map(r => r.underwriter).filter(Boolean))].sort();
-  const uwOpts = travelUws.slice();
-  if (travelUw && travelUw !== 'ALL' && uwOpts.indexOf(travelUw) === -1) uwOpts.unshift(travelUw);
-  const travelSelHtml = '<select id="travelUwFilter" onchange="travelUwChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">Select underwriter…</option><option value="ALL"' + (travelUw === 'ALL' ? ' selected' : '') + '>All</option>' + uwOpts.map(u => '<option value="' + escHtml(u) + '"' + (u === travelUw ? ' selected' : '') + '>' + escHtml(u) + '</option>').join('') + '</select>';
-  const travelRefreshHtml = '<button onclick="refreshTravelData()" style="font-size:11px;padding:2px 10px;border:1px solid #e2e8f0;border-radius:4px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;margin-left:6px;">Refresh</button>';
-  const travelHead = '<h3>Travel Summary ' + travelSelHtml + travelRefreshHtml + '</h3>';
-  if (!travelUw) { document.getElementById('weeklySummary').innerHTML = travelHead + '<p>Select an underwriter to load the summary.</p>'; return; }
-  const groups = {};
-  travelRows.forEach((row) => {
-    if (isNoTravel(row.travelOrder)) return;
-    const uw = row.underwriter||'(blank)';
-    const month = getMonth(row.startDate)||'(no date)';
-    const to = (row.travelOrder && String(row.travelOrder).trim()) || '(no travel order)';
-    const key = uw+'|'+month+'|'+to;
-    if (!groups[key]) groups[key]={underwriter:uw,month,travelOrder:to,days:0,venues:new Set()};
-    groups[key].days += daysTraveled(row.startDate, row.endDate);
-    if (row.venue && String(row.venue).trim()) groups[key].venues.add(String(row.venue).trim());
-  });
-  const sorted = Object.values(groups).sort((a,b)=>{
-    if(a.underwriter!==b.underwriter) return a.underwriter.localeCompare(b.underwriter);
-    if(a.month!==b.month) return a.month.localeCompare(b.month);
-    return a.travelOrder.localeCompare(b.travelOrder);
-  });
+  renderTravelSummary();
+}
 
-  if (travelLoading) { document.getElementById('weeklySummary').innerHTML = travelHead + '<p><span class="spin"></span>Loading…</p>'; return; }
-  if (travelError && !sorted.length) { document.getElementById('weeklySummary').innerHTML = travelHead + '<p>Could not load the current month sheet. Check your connection.</p><p><button onclick="refreshTravelData()" style="font-size:12px;padding:4px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;">Refresh</button></p>'; return; }
-  if (!sorted.length) { document.getElementById('weeklySummary').innerHTML = travelHead + '<p>No travel entries found.</p>'; return; }
+function renderTravelSummary() {
+  const el = document.getElementById('travelSection');
+  if (!el) return;
 
-  let html = travelHead + '<table><tr><th>Underwriter</th><th>Month</th><th>Travel Order</th><th>Days Traveled</th><th>Venue or Location</th></tr>';
-  sorted.forEach(g=>{
-    html+=`<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${escHtml(g.month)}</td><td>${escHtml(g.travelOrder)}</td><td>${g.days}</td><td class="left">${[...g.venues].map(v => escHtml(v)).join('; ') || '&mdash;'}</td></tr>`;
-  });
-  html+='</table>';
+  const monthOpts = sheetMonthOptions();
+  if (!travelMonth || !monthOpts.includes(travelMonth)) travelMonth = monthOpts[0];
 
-  document.getElementById('weeklySummary').innerHTML = html;
+  // Auto-select underwriter if user is an underwriter and travelUw is 'ALL' or empty
+  if ((!travelUw || travelUw === 'ALL') && sessionUser && sessionUser.name && underwriters.includes(sessionUser.name)) {
+    travelUw = sessionUser.name;
+  }
+
+  const monthSelHtml = '<select id="travelMonthFilter" onchange="travelMonthChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;">' + monthOpts.map(m => '<option value="' + m + '"' + (m === travelMonth ? ' selected' : '') + '>' + m + '</option>').join('') + '</select>';
+  const uwSelHtml = '<select id="travelUwFilter" onchange="travelUwChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="ALL"' + (travelUw === 'ALL' ? ' selected' : '') + '>All Underwriters (Overview)</option>' + [...underwriters].sort().map(u => '<option value="' + u + '"' + (u === travelUw ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>';
+  const refreshBtnHtml = '<button onclick="refreshTravelData()" style="font-size:11px;padding:2px 10px;border:1px solid #e2e8f0;border-radius:4px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;margin-left:6px;">Refresh</button>';
+  const head = '<h3>🚗 Travel Summary &amp; Attendance Audit ' + monthSelHtml + uwSelHtml + refreshBtnHtml + '</h3>';
+
+  if (travelLoading) {
+    el.innerHTML = head + '<p><span class="spin"></span>Loading travel data for ' + escHtml(travelMonth) + '…</p>';
+    return;
+  }
+  if (!travelRows.length && !sheetCache[travelMonth]) {
+    loadTravelData();
+    el.innerHTML = head + '<p><span class="spin"></span>Loading travel data for ' + escHtml(travelMonth) + '…</p>';
+    return;
+  }
+  if (travelError && !travelRows.length) {
+    el.innerHTML = head + '<p>Could not load ' + escHtml(travelMonth) + ' data. Check connection.</p><p><button onclick="refreshTravelData()" style="font-size:12px;padding:4px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;">Reconnect</button></p>';
+    return;
+  }
+
+  const parts = travelMonth.split(' ');
+  const yr = +parts[1], mi = MON_IDX[parts[0]];
+  const weeks = getMonthCalendarWeeks(yr, mi);
+
+  let html = head;
+
+  if (travelUw !== 'ALL') {
+    // -------------------------------------------------------------
+    // INDIVIDUAL UNDERWRITER VIEW (Self-Audit & Travel Summary)
+    // -------------------------------------------------------------
+    const uw = travelUw;
+    const uwRows = travelRows.filter(r => (r.underwriter || '').trim().toUpperCase() === uw.trim().toUpperCase());
+
+    let declaredWeeksCount = 0;
+    let evaluatedWeeksCount = 0;
+    let missingWeeksCount = 0;
+    let officeWeeksCount = 0;
+    let totalTravelDays = 0;
+    const toSet = new Set();
+    const seenTravelBlocks = new Set();
+    let totalFarmers = 0;
+
+    const weekCards = [];
+
+    weeks.forEach(w => {
+      const wRows = uwRows.filter(r => {
+        if (!r.startDate) return false;
+        const s = r.startDate;
+        const e = r.endDate || s;
+        return (s <= w.end && e >= w.start) || w.days.includes(s);
+      });
+
+      const fieldRows = wRows.filter(r => !isNoTravel(r.travelOrder));
+      const officeRows = wRows.filter(r => isNoTravel(r.travelOrder));
+
+      let status = '';
+      let badge = '';
+      let contentHtml = '';
+
+      if (fieldRows.length > 0) {
+        status = 'FIELD';
+        declaredWeeksCount++;
+        evaluatedWeeksCount++;
+        badge = '<span class="badge-status badge-ok">🟢 Field Travel</span>';
+
+        let daysInWeek = 0;
+        const tos = new Set();
+        const venues = new Set();
+        let farmersInWeek = 0;
+
+        fieldRows.forEach(r => {
+          const to = String(r.travelOrder || '').trim();
+          if (to) {
+            tos.add(to);
+            toSet.add(to);
+          }
+          if (r.venue) venues.add(String(r.venue).trim());
+          farmersInWeek += (parseInt(r.male) || 0) + (parseInt(r.female) || 0);
+
+          const blk = to + '|' + r.startDate + '|' + (r.endDate || r.startDate);
+          if (!seenTravelBlocks.has(blk)) {
+            seenTravelBlocks.add(blk);
+            daysInWeek += daysTraveled(r.startDate, r.endDate);
+          }
+        });
+        totalTravelDays += daysInWeek;
+        totalFarmers += farmersInWeek;
+
+        contentHtml = `<div style="font-size:12px;color:var(--body);margin-top:4px;line-height:1.5;">
+          <strong>Travel Order${tos.size > 1 ? 's' : ''}:</strong> ${[...tos].map(o => `<code>${escHtml(o)}</code>`).join(', ')} &middot; 
+          <strong>Days:</strong> ${daysInWeek} day${daysInWeek === 1 ? '' : 's'}<br>
+          <strong>Destination / Venues:</strong> ${[...venues].map(v => escHtml(v)).join('; ') || '&mdash;'}
+          ${farmersInWeek > 0 ? `&middot; <strong>Farmers:</strong> ${farmersInWeek.toLocaleString()}` : ''}
+        </div>`;
+      } else if (officeRows.length > 0) {
+        status = 'OFFICE';
+        declaredWeeksCount++;
+        evaluatedWeeksCount++;
+        officeWeeksCount++;
+        badge = '<span class="badge-status" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;">🔵 Office Duty / Leave</span>';
+        const duties = [...new Set(officeRows.map(r => r.travelOrder))].join('; ');
+        contentHtml = `<div style="font-size:12px;color:var(--body);margin-top:4px;">
+          <strong>Declared:</strong> <code>${escHtml(duties)}</code> &mdash; <span style="color:#15803d;font-weight:500;">✓ Attendance successfully cleared (Compliant)</span>
+        </div>`;
+      } else {
+        if (w.isFuture) {
+          status = 'FUTURE';
+          badge = '<span class="badge-status" style="background:var(--card-subtle);color:var(--muted);border:1px solid var(--line);">⚪ Upcoming Week</span>';
+          contentHtml = `<div style="font-size:12px;color:var(--muted);margin-top:4px;">This week has not started yet. Not evaluated for infractions.</div>`;
+        } else if (w.isCurrent) {
+          status = 'CURRENT';
+          evaluatedWeeksCount++;
+          badge = '<span class="badge-status badge-admonition">⏳ Current Week (In Progress)</span>';
+          contentHtml = `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin-top:6px;font-size:12px;color:#92400e;">
+            <strong>Current active week:</strong> No submission recorded yet. Ensure accomplishments or No-Travel are submitted by Tuesday 11:59 PM.
+            <div style="margin-top:6px;">
+              <button type="button" class="btn-add" style="font-size:11px;padding:3px 10px;cursor:pointer;" onclick="quickDeclareWeek('${escHtml(uw)}', '${w.start}', '${w.end}')">+ File Travel or No-Travel for ${w.label} &rarr;</button>
+            </div>
+          </div>`;
+        } else {
+          status = 'MISSING';
+          missingWeeksCount++;
+          evaluatedWeeksCount++;
+          badge = '<span class="badge-status badge-memo">🔴 Missing / Undeclared</span>';
+
+          const isGrace = missingWeeksCount === 1;
+          const warningBg = isGrace ? '#fffbeb' : '#fef2f2';
+          const warningBc = isGrace ? '#fde68a' : '#fecaca';
+          const warningColor = isGrace ? '#92400e' : '#991b1b';
+          const penaltyText = isGrace
+            ? '🟡 <strong>1st Undeclared Week (Grace Buffer):</strong> No penalty points charged yet. Submit immediately before it becomes a 3-point infraction!'
+            : '🚨 <strong>Strict Penalty Warning (×3):</strong> Missing after grace! Incurs a <strong>3-point penalty</strong> on SPMS compliance rating.';
+
+          contentHtml = `<div style="background:${warningBg};border:1px solid ${warningBc};border-radius:6px;padding:8px 12px;margin-top:6px;font-size:12px;color:${warningColor};">
+            <strong>⚠️ FORGOT TO DECLARE:</strong> No travel order, office duty, or leave was submitted for this week (${escHtml(formatWeekRange(w.start, w.end))})!<br>
+            <div style="margin:4px 0 6px;">${penaltyText}</div>
+            <button type="button" class="btn-add" style="font-size:11px;padding:4px 12px;cursor:pointer;background:#dc2626;color:#fff;border:none;border-radius:4px;font-weight:600;" onclick="quickDeclareWeek('${escHtml(uw)}', '${w.start}', '${w.end}')">+ File Travel or No-Travel for ${w.label} Now &rarr;</button>
+          </div>`;
+        }
+      }
+
+      weekCards.push({
+        label: w.label,
+        dateRange: formatWeekRange(w.start, w.end),
+        badge: badge,
+        contentHtml: contentHtml,
+        status: status
+      });
+    });
+
+    const coveragePercent = evaluatedWeeksCount > 0 ? Math.round((declaredWeeksCount / evaluatedWeeksCount) * 100) : 100;
+
+    // KPI Cards
+    html += '<div class="kpi-grid" style="margin-bottom:18px;">';
+    html += `<div class="kpi-card"><div class="kpi-label">🚗 Days Travelled</div><div class="kpi-value">${totalTravelDays} <span style="font-size:13px;font-weight:normal;color:var(--muted);">day${totalTravelDays === 1 ? '' : 's'}</span></div><div class="kpi-sub">Field trips in ${escHtml(travelMonth)}</div></div>`;
+    html += `<div class="kpi-card"><div class="kpi-label">📑 Travel Orders</div><div class="kpi-value">${toSet.size}</div><div class="kpi-sub">Official field orders filed</div></div>`;
+    html += `<div class="kpi-card"><div class="kpi-label">🏢 Non-Travel Declared</div><div class="kpi-value">${officeWeeksCount} <span style="font-size:13px;font-weight:normal;color:var(--muted);">week${officeWeeksCount === 1 ? '' : 's'}</span></div><div class="kpi-sub">Office duty / leave cleared</div></div>`;
+    html += `<div class="kpi-card"><div class="kpi-label">🛡️ Weekly Declaration</div><div class="kpi-value" style="color:${missingWeeksCount > 0 ? '#dc2626' : '#16a34a'};">${declaredWeeksCount} / ${evaluatedWeeksCount} <span style="font-size:13px;font-weight:normal;">(${coveragePercent}%)</span></div><div class="kpi-sub">${missingWeeksCount > 0 ? `⚠️ ${missingWeeksCount} week(s) forgot to declare!` : '✅ 100% Fully Accounted'}</div></div>`;
+    html += '</div>';
+
+    // Weekly Declaration Checklist
+    html += '<div style="background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">';
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--line);padding-bottom:10px;">';
+    html += `<div><h4 style="margin:0;font-size:14px;color:var(--ink);">📅 Weekly Attendance &amp; Declaration Checklist &mdash; ${escHtml(travelUw)} (${escHtml(travelMonth)})</h4><div style="font-size:11px;color:var(--muted);margin-top:2px;">Check each week to ensure no Monday&ndash;Friday working week was forgotten.</div></div>`;
+    if (missingWeeksCount > 0) {
+      html += `<span class="badge-status badge-memo" style="font-size:12px;padding:4px 10px;">⚠️ ${missingWeeksCount} Undeclared Week${missingWeeksCount > 1 ? 's' : ''} Detected</span>`;
+    } else {
+      html += `<span class="badge-status badge-ok" style="font-size:12px;padding:4px 10px;">✅ 100% Fully Accounted</span>`;
+    }
+    html += '</div>';
+
+    html += '<div style="display:flex;flex-direction:column;gap:10px;">';
+    weekCards.forEach(wc => {
+      const borderLeftColor = wc.status === 'FIELD' ? 'var(--brand)' : (wc.status === 'OFFICE' ? '#3b82f6' : (wc.status === 'MISSING' ? '#dc2626' : (wc.status === 'CURRENT' ? '#f59e0b' : 'var(--line)')));
+      html += `<div style="background:var(--card-subtle);border:1px solid var(--line);border-left:4px solid ${borderLeftColor};border-radius:6px;padding:10px 14px;">`;
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">`;
+      html += `<div><strong style="font-size:13px;color:var(--ink);">${wc.label}</strong> <span style="font-size:12px;color:var(--muted);margin-left:6px;">(${wc.dateRange})</span></div>`;
+      html += `<div>${wc.badge}</div>`;
+      html += `</div>`;
+      html += wc.contentHtml;
+      html += `</div>`;
+    });
+    html += '</div>';
+    html += '</div>';
+
+    // Summary of Travels & Mission Log Table
+    html += '<h4 style="font-size:14px;color:var(--ink);margin:16px 0 8px;border-left:4px solid var(--brand);padding-left:8px;">📋 Summary of Travels &amp; Field Accomplishments</h4>';
+    if (!uwRows.length) {
+      html += '<p style="color:var(--muted);font-size:12px;">No travel or attendance records submitted for this month.</p>';
+    } else {
+      html += '<table style="margin-top:6px;"><thead><tr>';
+      html += '<th style="text-align:left;">Inclusive Dates</th>';
+      html += '<th style="text-align:left;">Travel Order</th>';
+      html += '<th style="text-align:center;">Days</th>';
+      html += '<th style="text-align:left;">Venues / Municipalities</th>';
+      html += '<th style="text-align:left;">Agency / Coop / IA</th>';
+      html += '<th style="text-align:left;">Purpose</th>';
+      html += '<th style="text-align:center;">Farmers</th>';
+      html += '<th style="text-align:left;">Commodities</th>';
+      html += '</tr></thead><tbody>';
+
+      const COMMODITIES = ['rice', 'corn', 'hvc', 'liv', 'fsh', 'nci', 'tip'];
+      const sortedRows = uwRows.slice().sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+
+      sortedRows.forEach(r => {
+        const isOff = isNoTravel(r.travelOrder);
+        const days = isOff ? 0 : daysTraveled(r.startDate, r.endDate);
+        const fam = (parseInt(r.male) || 0) + (parseInt(r.female) || 0);
+        const commList = COMMODITIES.filter(k => r[k]).map(k => `<span class="chip" style="font-size:10px;padding:1px 5px;">${k.toUpperCase()}</span>`).join(' ') || '&mdash;';
+        const dateStr = formatWeekRange(r.startDate, r.endDate);
+
+        html += `<tr>`;
+        html += `<td class="left" style="white-space:nowrap;"><strong>${escHtml(dateStr)}</strong></td>`;
+        html += `<td class="left">${isOff ? `<span class="badge-status" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;">${escHtml(r.travelOrder)}</span>` : `<code>${escHtml(r.travelOrder || '(no TO)')}</code>`}</td>`;
+        html += `<td style="text-align:center;">${isOff ? '&mdash;' : `<strong>${days}</strong>`}</td>`;
+        html += `<td class="left">${escHtml(r.venue || '&mdash;')}</td>`;
+        html += `<td class="left">${escHtml(r.agency || '&mdash;')}</td>`;
+        html += `<td class="left" style="font-size:11px;">${escHtml(r.purpose || '&mdash;')}</td>`;
+        html += `<td style="text-align:center;">${fam > 0 ? fam.toLocaleString() : '&mdash;'}</td>`;
+        html += `<td class="left">${commList}</td>`;
+        html += `</tr>`;
+      });
+
+      html += `<tr class="total-row">`;
+      html += `<td class="left"><strong>Total (${sortedRows.length} entries)</strong></td>`;
+      html += `<td class="left"><strong>${toSet.size} Official TOs</strong></td>`;
+      html += `<td style="text-align:center;"><strong>${totalTravelDays} days</strong></td>`;
+      html += `<td class="left" colspan="3"></td>`;
+      html += `<td style="text-align:center;"><strong>${totalFarmers.toLocaleString()}</strong></td>`;
+      html += `<td></td>`;
+      html += `</tr>`;
+      html += '</tbody></table>';
+    }
+
+  } else {
+    // -------------------------------------------------------------
+    // REGIONAL ALL UNDERWRITERS VIEW (Weekly Declaration Matrix)
+    // -------------------------------------------------------------
+    const matrix = [];
+    let regTotalDays = 0;
+    let reg100Count = 0;
+    let regMissingCount = 0;
+
+    underwriters.forEach(uw => {
+      const uwRows = travelRows.filter(r => (r.underwriter || '').trim().toUpperCase() === uw.trim().toUpperCase());
+      const weekStatuses = [];
+      let declaredCount = 0;
+      let evaluatedCount = 0;
+      let missingCount = 0;
+      let daysCount = 0;
+      const seenBlocks = new Set();
+
+      weeks.forEach(w => {
+        const wRows = uwRows.filter(r => {
+          if (!r.startDate) return false;
+          const s = r.startDate;
+          const e = r.endDate || s;
+          return (s <= w.end && e >= w.start) || w.days.includes(s);
+        });
+
+        const fieldRows = wRows.filter(r => !isNoTravel(r.travelOrder));
+        const officeRows = wRows.filter(r => isNoTravel(r.travelOrder));
+
+        if (fieldRows.length > 0) {
+          declaredCount++;
+          evaluatedCount++;
+          let wDays = 0;
+          fieldRows.forEach(r => {
+            const blk = String(r.travelOrder || '').trim() + '|' + r.startDate + '|' + (r.endDate || r.startDate);
+            if (!seenBlocks.has(blk)) {
+              seenBlocks.add(blk);
+              wDays += daysTraveled(r.startDate, r.endDate);
+            }
+          });
+          daysCount += wDays;
+          weekStatuses.push({ label: '🟢 ' + wDays + 'd', class: 'badge-ok', text: `${wDays} day(s) field travel` });
+        } else if (officeRows.length > 0) {
+          declaredCount++;
+          evaluatedCount++;
+          weekStatuses.push({ label: '🔵 Office', class: 'badge-ok', text: 'Office duty / Leave' });
+        } else {
+          if (w.isFuture) {
+            weekStatuses.push({ label: '⚪ —', class: '', text: 'Upcoming' });
+          } else if (w.isCurrent) {
+            evaluatedCount++;
+            weekStatuses.push({ label: '⏳ Due', class: 'badge-admonition', text: 'In Progress (Due Tuesday)' });
+          } else {
+            evaluatedCount++;
+            missingCount++;
+            weekStatuses.push({ label: '🔴 Missing', class: 'badge-memo', text: 'Undeclared week!' });
+          }
+        }
+      });
+
+      if (missingCount === 0 && evaluatedCount > 0) reg100Count++;
+      if (missingCount > 0) regMissingCount++;
+      regTotalDays += daysCount;
+
+      matrix.push({
+        underwriter: uw,
+        weekStatuses: weekStatuses,
+        days: daysCount,
+        declared: declaredCount,
+        evaluated: evaluatedCount,
+        missing: missingCount
+      });
+    });
+
+    // KPI Cards for All Underwriters
+    html += '<div class="kpi-grid" style="margin-bottom:18px;">';
+    html += `<div class="kpi-card"><div class="kpi-label">👥 Underwriters Monitored</div><div class="kpi-value">${underwriters.length}</div><div class="kpi-sub">Field personnel in Region 10</div></div>`;
+    html += `<div class="kpi-card"><div class="kpi-label">🚗 Regional Field Days</div><div class="kpi-value">${regTotalDays} <span style="font-size:13px;font-weight:normal;color:var(--muted);">days</span></div><div class="kpi-sub">Total field coverage in ${escHtml(travelMonth)}</div></div>`;
+    html += `<div class="kpi-card"><div class="kpi-label">🟢 100% Declared</div><div class="kpi-value" style="color:#16a34a;">${reg100Count}</div><div class="kpi-sub">${Math.round((reg100Count / (underwriters.length || 1)) * 100)}% with all weeks accounted</div></div>`;
+    html += `<div class="kpi-card"><div class="kpi-label">⚠️ Missing Declarations</div><div class="kpi-value" style="color:${regMissingCount > 0 ? '#dc2626' : 'var(--muted)'};">${regMissingCount}</div><div class="kpi-sub">Underwriters with missing weeks</div></div>`;
+    html += '</div>';
+
+    // Regional Matrix Table
+    html += '<div style="margin-bottom:12px;font-size:12px;color:var(--muted);">Click any underwriter\'s name to inspect their personal weekly breakdown.</div>';
+    html += '<table><thead><tr>';
+    html += '<th style="text-align:left;">Underwriter</th>';
+    weeks.forEach(w => {
+      html += `<th style="text-align:center;">${w.label}<span style="display:block;font-size:9px;font-weight:normal;color:var(--muted);">${escHtml(formatWeekRange(w.start, w.end))}</span></th>`;
+    });
+    html += '<th style="text-align:center;">Field Days</th>';
+    html += '<th style="text-align:center;">Weekly Coverage</th>';
+    html += '<th style="text-align:center;">Audit Status</th>';
+    html += '</tr></thead><tbody>';
+
+    matrix.sort((a, b) => a.underwriter.localeCompare(b.underwriter)).forEach(m => {
+      const pct = m.evaluated > 0 ? Math.round((m.declared / m.evaluated) * 100) : 100;
+      const statusBadge = m.missing === 0
+        ? '<span class="badge-status badge-ok">🟢 100% Declared</span>'
+        : `<span class="badge-status badge-memo">🔴 ${m.missing} Week${m.missing > 1 ? 's' : ''} Missing</span>`;
+
+      html += `<tr>`;
+      html += `<td class="left"><a href="javascript:void(0)" onclick="selectTravelUnderwriter('${escHtml(m.underwriter)}')" style="font-weight:600;color:var(--brand-dark);text-decoration:underline;">${escHtml(m.underwriter)}</a></td>`;
+      m.weekStatuses.forEach(ws => {
+        html += `<td style="text-align:center;" title="${escHtml(ws.text)}"><span class="badge-status ${ws.class}" style="font-size:10px;padding:2px 6px;">${ws.label}</span></td>`;
+      });
+      html += `<td style="text-align:center;"><strong>${m.days}</strong></td>`;
+      html += `<td style="text-align:center;">${m.declared} / ${m.evaluated} <span style="font-size:10px;color:var(--muted);">(${pct}%)</span></td>`;
+      html += `<td style="text-align:center;">${statusBadge}</td>`;
+      html += `</tr>`;
+    });
+
+    html += `<tr class="total-row">`;
+    html += `<td class="left"><strong>Regional Total (${underwriters.length} UWs)</strong></td>`;
+    weeks.forEach(() => { html += `<td></td>`; });
+    html += `<td style="text-align:center;"><strong>${regTotalDays} days</strong></td>`;
+    html += `<td></td>`;
+    html += `<td style="text-align:center;"><span style="font-size:11px;">${reg100Count} Complete &middot; ${regMissingCount} Actionable</span></td>`;
+    html += `</tr>`;
+    html += '</tbody></table>';
+  }
+
+  // Attendance Policy note at bottom
+  html += '<div style="font-size:11px;color:var(--muted);margin-top:14px;line-height:1.6;border-top:1px dashed var(--line);padding-top:10px;"><strong>⚖️ Weekly Attendance Accountability &amp; Travel Rules:</strong>';
+  html += '<ul style="margin:4px 0 0 16px;padding:0;">';
+  html += '<li><strong>Weekly Accountability:</strong> Every Monday–Friday working week must have a corresponding travel order or a declared <code>NO TRAVEL - OFFICE DUTY</code> / <code>NO TRAVEL - ON LEAVE</code> entry.</li>';
+  html += '<li><strong>Grace Buffer for 1st Undeclared Week:</strong> Missing 1 isolated week in a month is granted a grace window (0 penalty points) to accommodate batch reporting.</li>';
+  html += '<li><strong>Strict 2-Week Cut-off:</strong> If no input is declared after 2 weeks, a penalty of <strong>3 points per undeclared week (&times;3)</strong> is charged against the underwriter\'s compliance rating.</li>';
+  html += '<li><strong>Late Filing Cure:</strong> Submitting a delayed weekly accomplishment converts the severe 3-point Non-Declaration penalty into a minor <strong>1-point Late Report</strong> deduction. Submitting late is always preferred over non-reporting.</li>';
+  html += '</ul></div>';
+
+  el.innerHTML = html;
 }
 
 function sheetMonthOptions() {
@@ -1028,46 +1462,7 @@ async function sheetMonthChanged() {
 }
 
 function renderSheetSummary() {
-  const mSel = document.getElementById('sheetMonthFilter');
-  if (mSel) sheetMonth = mSel.value;
-  const sheetSel = document.getElementById('sheetUwFilter');
-  let sheetUw = sheetSel ? sheetSel.value : '';
-  const sheetUws = [...new Set(prevMonthData.map(r => r.underwriter).filter(Boolean))].sort();
-  if (sheetUw && sheetUws.indexOf(sheetUw) === -1) sheetUw = '';
-  const cur = sheetMonthOptions()[0];
-  const monthOpts = sheetMonthOptions().filter(m => m !== cur);
-  if (sheetMonth === cur) sheetMonth = '';
-  if (sheetMonth && monthOpts.indexOf(sheetMonth) === -1) monthOpts.unshift(sheetMonth);
-  const monthSelHtml = '<select id="sheetMonthFilter" onchange="sheetMonthChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">Select month…</option>' + monthOpts.map(m => '<option value="' + m + '"' + (m === sheetMonth ? ' selected' : '') + '>' + m + '</option>').join('') + '</select>';
-  const sheetSelHtml = '<select id="sheetUwFilter" onchange="renderSheetSummary()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">All</option>' + sheetUws.map(u => '<option value="' + escHtml(u) + '"' + (u === sheetUw ? ' selected' : '') + '>' + escHtml(u) + '</option>').join('') + '</select>';
-  const sheetHead = '<h3>Previous Month Summary &mdash; ' + monthSelHtml + ' ' + sheetSelHtml + '</h3>';
-  if (!sheetMonth) { document.getElementById('sheetSummary').innerHTML = sheetHead + '<p>Select a month to load the summary.</p>'; return; }
-  if (sheetLoading) { document.getElementById('sheetSummary').innerHTML = sheetHead + '<p><span class="spin"></span>Loading ' + escHtml(sheetMonth) + '…</p>'; return; }
-  if (sheetError && !prevMonthData.length) { document.getElementById('sheetSummary').innerHTML = sheetHead + '<p>Could not load ' + escHtml(sheetMonth) + '. Check your connection.</p><p><button onclick="sheetMonthChanged()" style="font-size:12px;padding:4px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;">Reconnect</button></p>'; return; }
-  if (!prevMonthData.length) { document.getElementById('sheetSummary').innerHTML = sheetHead + '<p>No submitted entries for ' + escHtml(sheetMonth) + '.</p>'; return; }
-  const groups = {};
-  const sheetSrc = sheetUw ? prevMonthData.filter(r => r.underwriter === sheetUw) : prevMonthData;
-  sheetSrc.forEach(r => {
-    if (isNoTravel(r.travelOrder)) return;
-    const uw = r.underwriter || '(blank)';
-    const month = getMonth(r.startDate) || '(no date)';
-    const to = (r.travelOrder && String(r.travelOrder).trim()) || '(no travel order)';
-    const key = uw + '|' + month + '|' + to;
-    if (!groups[key]) groups[key] = { underwriter: uw, month: month, travelOrder: to, days: 0, venues: new Set() };
-    groups[key].days += daysTraveled(r.startDate, r.endDate);
-    if (r.venue && String(r.venue).trim()) groups[key].venues.add(String(r.venue).trim());
-  });
-  const sorted = Object.values(groups).sort((a, b) => {
-    if (a.underwriter !== b.underwriter) return a.underwriter.localeCompare(b.underwriter);
-    if (a.month !== b.month) return a.month.localeCompare(b.month);
-    return a.travelOrder.localeCompare(b.travelOrder);
-  });
-  let html = sheetHead + '<table><tr><th>Underwriter</th><th>Month</th><th>Travel Order</th><th>Days Traveled</th><th>Venue or Location</th></tr>';
-  sorted.forEach(g => {
-    html += `<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${escHtml(g.month)}</td><td>${escHtml(g.travelOrder)}</td><td>${g.days}</td><td class="left">${[...g.venues].map(v => escHtml(v)).join('; ') || '&mdash;'}</td></tr>`;
-  });
-  html += '</table>';
-  document.getElementById('sheetSummary').innerHTML = html;
+  renderTravelSummary();
 }
 
 async function fetchSheetMonth(label) {
@@ -1172,10 +1567,12 @@ async function loadComplianceData() {
     labels.forEach(l => compSources[l] = (sheetCache[l] && sheetCache[l].error) ? 'unreachable' : 'ok');
     compLoading = false;
     renderCompliance();
+    renderRatingAssessment();
     return;
   }
   compLoading = true; compError = false;
   renderCompliance();
+  renderRatingAssessment();
   const results = await Promise.all(labels.map(async (l) => {
     let res = sheetCache[l];
     if (!res) { res = await fetchSheetMonth(l); sheetCache[l] = res; }
@@ -1188,6 +1585,7 @@ async function loadComplianceData() {
   labels.forEach((l, i) => compSources[l] = results[i].error ? 'unreachable' : 'ok');
   compLoading = false;
   renderCompliance();
+  renderRatingAssessment();
 }
 function reloadComplianceData() {
   sheetMonthOptions().forEach(l => delete sheetCache[l]);
@@ -1310,6 +1708,22 @@ function closeInfractionModal() {
   if (modal) modal.classList.remove('show');
 }
 
+function calcSpmsRating(pts) {
+  if (pts <= 0) return { score: 5.00, label: 'Outstanding', code: 'O', color: 'var(--brand-deep)', badgeClass: 'badge-ok' };
+  if (pts <= 3) return { score: Math.max(4.00, 5.00 - (pts * 0.25)), label: 'Very Satisfactory', code: 'VS', color: '#b45309', badgeClass: 'badge-admonition' };
+  if (pts <= 6) return { score: Math.max(3.00, 4.00 - ((pts - 3) * 0.25)), label: 'Satisfactory', code: 'S', color: '#c2410c', badgeClass: 'badge-reprimand' };
+  if (pts <= 9) return { score: Math.max(2.00, 3.00 - ((pts - 6) * 0.25)), label: 'Unsatisfactory', code: 'US', color: '#dc2626', badgeClass: 'badge-warning' };
+  return { score: 1.00, label: 'Poor', code: 'P', color: '#b91c1c', badgeClass: 'badge-memo' };
+}
+
+function assessAdminStatus(t) {
+  if (t >= 10) return '<span class="badge-status badge-memo">🔴 Subject for Memorandum</span>';
+  if (t >= 7) return '<span class="badge-status badge-warning">🚨 Subject for Written Warning</span>';
+  if (t >= 4) return '<span class="badge-status badge-reprimand">🟠 Subject for Reprimand</span>';
+  if (t >= 1) return '<span class="badge-status badge-admonition">🟡 Subject for Admonition</span>';
+  return '<span class="badge-status badge-ok">🟢 Compliant</span>';
+}
+
 function renderCompliance() {
   const el = document.getElementById('complianceSection');
   const compSel = document.getElementById('compUwFilter');
@@ -1407,38 +1821,269 @@ function renderCompliance() {
   });
   html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td></td><td></td><td>${t.nonDec}</td><td>${t.commodity}</td><td>${t.overlong}</td><td>${t.dupe}</td><td>${t.late}</td><td><strong>${t.total}</strong></td></tr>`;
   html += '</table>';
-  const calcSpmsRating = (pts) => {
-    if (pts <= 0) return { score: 5.00, label: 'Outstanding', code: 'O', color: 'var(--brand-deep)', badgeClass: 'badge-ok' };
-    if (pts <= 3) return { score: Math.max(4.00, 5.00 - (pts * 0.25)), label: 'Very Satisfactory', code: 'VS', color: '#b45309', badgeClass: 'badge-admonition' };
-    if (pts <= 6) return { score: Math.max(3.00, 4.00 - ((pts - 3) * 0.25)), label: 'Satisfactory', code: 'S', color: '#c2410c', badgeClass: 'badge-reprimand' };
-    if (pts <= 9) return { score: Math.max(2.00, 3.00 - ((pts - 6) * 0.25)), label: 'Unsatisfactory', code: 'US', color: '#dc2626', badgeClass: 'badge-warning' };
-    return { score: 1.00, label: 'Poor', code: 'P', color: '#b91c1c', badgeClass: 'badge-memo' };
-  };
-  const assessAdminStatus = (t) => {
-    if (t >= 10) return '<span class="badge-status badge-memo">🔴 Subject for Memorandum</span>';
-    if (t >= 7) return '<span class="badge-status badge-warning">🚨 Subject for Written Warning</span>';
-    if (t >= 4) return '<span class="badge-status badge-reprimand">🟠 Subject for Reprimand</span>';
-    if (t >= 1) return '<span class="badge-status badge-admonition">🟡 Subject for Admonition</span>';
-    return '<span class="badge-status badge-ok">🟢 Compliant</span>';
-  };
-  const uwTotals = {};
-  rows.forEach(g => {
-    if (!uwTotals[g.underwriter]) uwTotals[g.underwriter] = { underwriter: g.underwriter, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0 };
-    const u = uwTotals[g.underwriter];
-    u.nonDec += calcNonDecPoints(g.nonDec); u.commodity += g.commodity; u.overlong += g.overlong; u.dupe += g.dupe; u.late += g.late;
-  });
-  const urows = Object.values(uwTotals).sort((a, b) => a.underwriter.localeCompare(b.underwriter));
-  const gt = { nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, total: 0 };
-  html += '<h3>Quarterly Infraction &amp; SPMS Rating Assessment (' + escHtml(selPeriod.label) + ')</h3><table><tr><th>Underwriter</th><th>Unreported Travel / No-Travel (×3) <button class="th-info-btn" onclick="openInfractionHelp(\'unreported\')" title="Click for explanation" type="button">ℹ</button></th><th>Zero Viable Commodity <button class="th-info-btn" onclick="openInfractionHelp(\'commodity\')" title="Click for explanation" type="button">ℹ</button></th><th>Excessive Duration (&gt;5 Days) <button class="th-info-btn" onclick="openInfractionHelp(\'duration\')" title="Click for explanation" type="button">ℹ</button></th><th>Duplicate Entry <button class="th-info-btn" onclick="openInfractionHelp(\'duplicate\')" title="Click for explanation" type="button">ℹ</button></th><th>Late Report <button class="th-info-btn" onclick="openInfractionHelp(\'late\')" title="Click for explanation" type="button">ℹ</button></th><th>Total Points</th><th>SPMS Rating (1.00–5.00)</th><th>Assessment</th></tr>';
-  urows.forEach(u => {
-    const utot = u.nonDec + u.commodity + u.overlong + u.dupe + u.late;
-    gt.nonDec += u.nonDec; gt.commodity += u.commodity; gt.overlong += u.overlong; gt.dupe += u.dupe; gt.late += u.late; gt.total += utot;
-    const spms = calcSpmsRating(utot);
-    html += `<tr><td class="left"><strong>${escHtml(u.underwriter)}</strong></td><td>${u.nonDec > 0 ? '<strong>' + u.nonDec + '</strong>' : (rows.some(r => r.underwriter === u.underwriter && r.nonDec === 1) ? '0 <span style="font-size:10px;color:var(--muted);">(grace)</span>' : '0')}</td><td>${u.commodity}</td><td>${u.overlong}</td><td>${u.dupe}</td><td>${u.late}</td><td><strong>${utot}</strong></td><td><strong style="font-size:13px;color:${spms.color};">${spms.score.toFixed(2)}</strong> <span style="font-size:10px;color:var(--muted);">${spms.label} (${spms.code})</span></td><td>${assessAdminStatus(utot)}</td></tr>`;
-  });
-  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td>${gt.nonDec}</td><td>${gt.commodity}</td><td>${gt.overlong}</td><td>${gt.dupe}</td><td>${gt.late}</td><td><strong>${gt.total}</strong></td><td>&mdash;</td><td>&mdash;</td></tr>`;
-  html += '</table><div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;border-top:1px dashed var(--line);padding-top:8px;"><strong>⚖️ Harmonized Quarterly Compliance Rules &amp; SPMS Rating:</strong><ul style="margin:4px 0 0 16px;padding:0;"><li><strong>Quarterly Assessment Period:</strong> Evaluated quarterly per 1st Quarter (January&ndash;March), 2nd Quarter (April&ndash;June), 3rd Quarter (July&ndash;September), and 4th Quarter (October&ndash;December).</li><li><strong>Civil Service / SPMS 5.00 Rating Scale:</strong> <strong>5.00 (Outstanding / O)</strong> = 0 infraction points; <strong>4.00&ndash;4.99 (Very Satisfactory / VS)</strong> = 1&ndash;3 points (Admonition); <strong>3.00&ndash;3.99 (Satisfactory / S)</strong> = 4&ndash;6 points (Reprimand); <strong>2.00&ndash;2.99 (Unsatisfactory / US)</strong> = 7&ndash;9 points (Written Warning); <strong>1.00 (Poor / P)</strong> = &ge;10 points (Memorandum).</li><li><strong>Subsequent Compliance (Late Submission):</strong> Submitting an overdue weekly report cures the 3-point <em>Unreported Travel</em> penalty and converts it to a standard <strong>1-point Late Report</strong> infraction. Submitting late is always preferred over non-reporting.</li><li><strong>Failure to Declare (Unreported):</strong> 1 undeclared week in a month is granted a grace buffer (0 pts). If no input is declared after 2 weeks, a strict penalty of <strong>3 points per undeclared week (&times;3)</strong> applies.</li><li><strong>Legitimate Non-Travel:</strong> Underwriters working at the office or on approved leave can clear attendance by declaring <code>NO TRAVEL - OFFICE DUTY</code> or <code>NO TRAVEL - ON LEAVE</code>.</li></ul></div>';
+  html += '<div style="margin-top:16px;padding:12px 16px;background:var(--brand-tint);border:1px solid #bbf7d0;border-radius:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;"><div><strong style="color:var(--brand-dark);">⭐ Underwriter SPMS Rating Assessment</strong><div style="font-size:12px;color:var(--body);margin-top:2px;">View official SPMS 5.00 ratings, cause of rating justifications, and operational context (days &amp; farmers) in the dedicated tab.</div></div><button type="button" onclick="switchTab(\'rating\')" style="font-size:12px;padding:6px 14px;border:none;border-radius:6px;background:var(--brand);color:#fff;font-weight:600;cursor:pointer;font-family:inherit;">Open Rating Assessment &rarr;</button></div>';
+  html += '<div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;border-top:1px dashed var(--line);padding-top:8px;"><strong>⚖️ Harmonized Quarterly Compliance Rules &amp; Infraction Point System:</strong><ul style="margin:4px 0 0 16px;padding:0;"><li><strong>Quarterly Assessment Period:</strong> Evaluated quarterly per 1st Quarter (January&ndash;March), 2nd Quarter (April&ndash;June), 3rd Quarter (July&ndash;September), and 4th Quarter (October&ndash;December).</li><li><strong>Subsequent Compliance (Late Submission):</strong> Submitting an overdue weekly report cures the 3-point <em>Unreported Travel</em> penalty and converts it to a standard <strong>1-point Late Report</strong> infraction. Submitting late is always preferred over non-reporting.</li><li><strong>Failure to Declare (Unreported):</strong> 1 undeclared week in a month is granted a grace buffer (0 pts). If no input is declared after 2 weeks, a strict penalty of <strong>3 points per undeclared week (&times;3)</strong> applies.</li><li><strong>Legitimate Non-Travel:</strong> Underwriters working at the office or on approved leave can clear attendance by declaring <code>NO TRAVEL - OFFICE DUTY</code> or <code>NO TRAVEL - ON LEAVE</code>.</li></ul></div>';
   }
+  el.innerHTML = html;
+}
+
+function getCauseOfRating(u) {
+  if (u.totalPoints === 0 && (!u.graceMonths || u.graceMonths === 0)) {
+    return '<span style="color:var(--brand-deep);font-weight:600;">✅ 100% Compliant &mdash; Zero infractions recorded</span>';
+  }
+  const items = [];
+  if (u.late > 0) {
+    items.push(`⏰ <strong>${u.late} Late Weekly Report${u.late > 1 ? 's' : ''}</strong> (&minus;${(u.late * 0.25).toFixed(2)} pts on SPMS · ${u.late} pt${u.late > 1 ? 's' : ''})`);
+  }
+  if (u.nonDecPoints > 0) {
+    items.push(`🚗 <strong>${u.nonDecWeeks} Undeclared Week${u.nonDecWeeks > 1 ? 's' : ''}</strong> (&times;3 severe penalty: ${u.nonDecPoints} pts)`);
+  } else if (u.graceMonths > 0) {
+    items.push(`🚗 <em>1 Undeclared week in ${u.graceMonths} month${u.graceMonths > 1 ? 's' : ''} (grace buffer applied · 0 pts)</em>`);
+  }
+  if (u.commodity > 0) {
+    items.push(`🌾 <strong>${u.commodity} Zero Viable Commodity</strong> (&minus;${(u.commodity * 0.25).toFixed(2)} pts · ${u.commodity} pt${u.commodity > 1 ? 's' : ''})`);
+  }
+  if (u.overlong > 0) {
+    items.push(`⏱️ <strong>${u.overlong} Excessive Duration (&gt;5 Days)</strong> (&minus;${(u.overlong * 0.25).toFixed(2)} pts · ${u.overlong} pt${u.overlong > 1 ? 's' : ''})`);
+  }
+  if (u.dupe > 0) {
+    items.push(`📄 <strong>${u.dupe} Duplicate Entry(ies)</strong> (&minus;${(u.dupe * 0.25).toFixed(2)} pts · ${u.dupe} pt${u.dupe > 1 ? 's' : ''})`);
+  }
+
+  if (!items.length) {
+    return '<span style="color:var(--brand-deep);font-weight:600;">✅ 100% Compliant &mdash; Zero infractions recorded</span>';
+  }
+
+  return '<ul style="margin:0;padding-left:16px;font-size:12px;line-height:1.5;">' + 
+    items.map(it => `<li>${it}</li>`).join('') + 
+    '</ul>';
+}
+
+function ratingPeriodChanged() {
+  const sel = document.getElementById('ratingPeriodFilter');
+  if (sel) ratingPeriod = sel.value;
+  renderRatingAssessment();
+}
+
+function ratingUwChanged() {
+  const sel = document.getElementById('ratingUwFilter');
+  if (sel) ratingUw = sel.value;
+  renderRatingAssessment();
+}
+
+function renderRatingAssessment() {
+  const el = document.getElementById('ratingSection');
+  if (!el) return;
+
+  const quarters = reportingQuarters();
+  if (!ratingPeriod || !quarters.some(q => q.key === ratingPeriod)) ratingPeriod = currentQuarterKey();
+  const selPeriod = quarters.find(q => q.key === ratingPeriod) || quarters[0];
+  const selPeriodMonths = new Set(selPeriod.months);
+
+  const ratingPeriodHtml = '<select id="ratingPeriodFilter" onchange="ratingPeriodChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;">' + quarters.map(q => '<option value="' + q.key + '"' + (q.key === ratingPeriod ? ' selected' : '') + '>' + escHtml(q.label) + '</option>').join('') + '</select>';
+  const ratingSelHtml = '<select id="ratingUwFilter" onchange="ratingUwChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="ALL"' + (ratingUw === 'ALL' ? ' selected' : '') + '>All Underwriters</option>' + [...underwriters].sort().map(u => '<option value="' + u + '"' + (u === ratingUw ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>';
+  const ratingRefreshHtml = '<button onclick="reloadComplianceData()" style="font-size:11px;padding:2px 10px;border:1px solid #e2e8f0;border-radius:4px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;margin-left:6px;">Refresh</button>';
+  const head = '<h3>⭐ Underwriter Rating Assessment ' + ratingPeriodHtml + ratingSelHtml + ratingRefreshHtml + '</h3>';
+
+  if (compLoading) {
+    el.innerHTML = head + '<p><span class="spin"></span>Loading rating and compliance data…</p>';
+    return;
+  }
+  if (!compData.length) {
+    if (!compError) {
+      loadComplianceData();
+      el.innerHTML = head + '<p><span class="spin"></span>Loading rating and compliance data…</p>';
+      return;
+    } else {
+      el.innerHTML = head + '<p>Could not load monthly sheets. Check your connection.</p><p><button onclick="reloadComplianceData()" style="font-size:12px;padding:4px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;">Reconnect</button></p>';
+      return;
+    }
+  }
+
+  // Calculate infractions and operational accomplishments
+  const present = new Set();
+  compData.forEach(r => { if (r.underwriter && r.startDate) present.add(String(r.underwriter).trim().toUpperCase() + '|' + String(r.startDate).trim()); });
+  const COMMODITIES = ['rice', 'corn', 'hvc', 'liv', 'fsh', 'nci', 'tip'];
+  const groups = {};
+  const dupeTally = {};
+  const norm = (v, fold) => { const s = (v && String(v).trim()) || ''; return fold ? s.toUpperCase() : s; };
+
+  const uwAccomplishments = {};
+  const seenTravelBlocks = new Set();
+
+  underwriters.forEach(uw => {
+    uwAccomplishments[uw] = { days: 0, farmers: 0 };
+  });
+
+  compData.forEach(r => {
+    const uw = (r.underwriter && String(r.underwriter).trim()) || '';
+    if (!uw) return;
+    const month = getMonth(r.startDate) || '';
+
+    if (selPeriodMonths.has(month)) {
+      if (!uwAccomplishments[uw]) uwAccomplishments[uw] = { days: 0, farmers: 0 };
+      uwAccomplishments[uw].farmers += (parseInt(r.male) || 0) + (parseInt(r.female) || 0);
+
+      if (r.travelOrder && !isNoTravel(r.travelOrder)) {
+        const blk = uw + '|' + String(r.travelOrder).trim() + '|' + String(r.startDate).trim() + '|' + String(r.endDate).trim();
+        if (!seenTravelBlocks.has(blk)) {
+          seenTravelBlocks.add(blk);
+          uwAccomplishments[uw].days += daysTraveled(r.startDate, r.endDate);
+        }
+      }
+    }
+
+    const key = uw + '|' + month;
+    if (!groups[key]) groups[key] = { underwriter: uw, month: month, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, tos: new Set() };
+    const g = groups[key];
+    if (isLate(r.startDate, r.submittedAt)) {
+      g.late++;
+      const lto = (r.travelOrder && String(r.travelOrder).trim()) || '';
+      if (lto) g.tos.add(lto);
+    }
+    if (!isNoTravel(r.travelOrder)) {
+      const to = (r.travelOrder && String(r.travelOrder).trim()) || '';
+      let bad = false;
+      if (!COMMODITIES.some(k => r[k])) { g.commodity++; bad = true; }
+      if (daysTraveled(r.startDate, r.endDate) > 5) { g.overlong++; bad = true; }
+      if (bad && to) g.tos.add(to);
+      const dk = norm(uw) + '|' + norm(r.travelOrder) + '|' + norm(r.startDate) + '|' + norm(r.endDate) + '|' + norm(r.venue, true) + '|' + norm(r.agency, true) + '|' + norm(r.purpose, true) + '|' + norm(r.contact, true);
+      if (!dupeTally[dk]) dupeTally[dk] = { n: 0, uw: uw, month: month, to: norm(r.travelOrder) };
+      dupeTally[dk].n++;
+    }
+  });
+
+  const labels = sheetMonthOptions();
+  labels.forEach(label => {
+    const parts = label.split(' ');
+    const yr = +parts[1], mi = MON_IDX[parts[0]];
+    let weeks = monthWeeks(yr, mi);
+    const dow = new Date(yr, mi, 1).getDay();
+    const stubSize = dow === 0 ? 0 : 6 - dow;
+    if (dow === 4 && stubSize >= 3 && stubSize < 5 && weeks.length) { weeks = weeks.slice(1); }
+    weeks.forEach(w => {
+      underwriters.forEach(uw => {
+        if (!w.days.some(d => present.has(String(uw).trim().toUpperCase() + '|' + d))) {
+          const k = uw + '|' + label;
+          if (!groups[k]) { const p = k.split('|'); groups[k] = { underwriter: p[0], month: p[1], nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, tos: new Set() }; }
+          groups[k].nonDec++;
+        }
+      });
+    });
+  });
+
+  Object.values(dupeTally).forEach(d => {
+    if (d.n < 2) return;
+    const k = d.uw + '|' + d.month;
+    if (!groups[k]) groups[k] = { underwriter: d.uw, month: d.month, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, tos: new Set() };
+    groups[k].dupe++;
+    if (d.to) groups[k].tos.add(d.to);
+  });
+
+  const calcNonDecPoints = (nonDecWeeks) => nonDecWeeks >= 2 ? nonDecWeeks * 3 : 0;
+
+  // Build aggregate rating records per underwriter
+  const uwMap = {};
+  const targetUws = ratingUw === 'ALL' ? [...underwriters] : [ratingUw];
+
+  targetUws.forEach(uw => {
+    uwMap[uw] = {
+      underwriter: uw,
+      days: (uwAccomplishments[uw] && uwAccomplishments[uw].days) || 0,
+      farmers: (uwAccomplishments[uw] && uwAccomplishments[uw].farmers) || 0,
+      nonDecWeeks: 0,
+      nonDecPoints: 0,
+      graceMonths: 0,
+      commodity: 0,
+      overlong: 0,
+      dupe: 0,
+      late: 0,
+      totalPoints: 0
+    };
+  });
+
+  Object.values(groups).filter(g => selPeriodMonths.has(g.month)).forEach(g => {
+    if (!uwMap[g.underwriter]) return;
+    const u = uwMap[g.underwriter];
+    const pts = calcNonDecPoints(g.nonDec);
+    u.nonDecWeeks += g.nonDec;
+    u.nonDecPoints += pts;
+    if (g.nonDec === 1) u.graceMonths++;
+    u.commodity += g.commodity;
+    u.overlong += g.overlong;
+    u.dupe += g.dupe;
+    u.late += g.late;
+  });
+
+  Object.values(uwMap).forEach(u => {
+    u.totalPoints = u.nonDecPoints + u.commodity + u.overlong + u.dupe + u.late;
+    u.spms = calcSpmsRating(u.totalPoints);
+  });
+
+  const urows = Object.values(uwMap).sort((a, b) => a.underwriter.localeCompare(b.underwriter));
+
+  // Compute summary stats
+  const totalDays = urows.reduce((s, u) => s + u.days, 0);
+  const totalFarmers = urows.reduce((s, u) => s + u.farmers, 0);
+  const totalPts = urows.reduce((s, u) => s + u.totalPoints, 0);
+  const avgScore = urows.length ? (urows.reduce((s, u) => s + u.spms.score, 0) / urows.length) : 5.00;
+  const compliantCount = urows.filter(u => u.totalPoints === 0).length;
+  const actionCount = urows.length - compliantCount;
+
+  let html = head;
+
+  // KPI summary cards
+  html += '<div class="kpi-grid" style="margin-bottom:18px;">';
+  html += `<div class="kpi-card"><div class="kpi-label">👥 Underwriters Assessed</div><div class="kpi-value">${urows.length}</div><div class="kpi-sub">Total under evaluation</div></div>`;
+  html += `<div class="kpi-card"><div class="kpi-label">🌟 Average SPMS Rating</div><div class="kpi-value" style="color:var(--brand-dark);">${avgScore.toFixed(2)} <span style="font-size:13px;color:var(--muted);font-weight:normal;">/ 5.00</span></div><div class="kpi-sub">Quarterly regional index</div></div>`;
+  html += `<div class="kpi-card"><div class="kpi-label">🟢 100% Compliant</div><div class="kpi-value" style="color:#16a34a;">${compliantCount}</div><div class="kpi-sub">${((compliantCount / (urows.length || 1)) * 100).toFixed(0)}% with zero infractions</div></div>`;
+  html += `<div class="kpi-card"><div class="kpi-label">⚠️ Actionable Infractions</div><div class="kpi-value" style="color:${actionCount > 0 ? '#dc2626' : 'var(--muted)'};">${actionCount}</div><div class="kpi-sub">Underwriters with deductions</div></div>`;
+  html += '</div>';
+
+  // Main Assessment Table
+  html += '<table style="margin-top:10px;"><thead><tr>';
+  html += '<th style="text-align:left;">Underwriter</th>';
+  html += '<th style="text-align:center;">Days Travelled <span style="display:block;font-size:10px;font-weight:normal;color:var(--muted);">(Context only)</span></th>';
+  html += '<th style="text-align:center;">Farmers Assisted <span style="display:block;font-size:10px;font-weight:normal;color:var(--muted);">(Context only)</span></th>';
+  html += '<th style="text-align:center;">Total Points</th>';
+  html += '<th style="text-align:left;">SPMS Rating (1.00&ndash;5.00)</th>';
+  html += '<th style="text-align:center;">Assessment Status</th>';
+  html += '<th style="text-align:left;min-width:240px;">Cause of Rating (Audit Justification)</th>';
+  html += '</tr></thead><tbody>';
+
+  urows.forEach(u => {
+    html += `<tr>`;
+    html += `<td class="left"><strong>${escHtml(u.underwriter)}</strong></td>`;
+    html += `<td style="text-align:center;"><strong>${u.days}</strong> <span style="font-size:11px;color:var(--muted);">day${u.days === 1 ? '' : 's'}</span></td>`;
+    html += `<td style="text-align:center;"><strong>${u.farmers.toLocaleString()}</strong> <span style="font-size:11px;color:var(--muted);">farmers</span></td>`;
+    html += `<td style="text-align:center;"><strong>${u.totalPoints}</strong></td>`;
+    html += `<td class="left"><strong style="font-size:13px;color:${u.spms.color};">${u.spms.score.toFixed(2)}</strong> <span style="font-size:11px;color:var(--muted);">${u.spms.label} (${u.spms.code})</span></td>`;
+    html += `<td style="text-align:center;">${assessAdminStatus(u.totalPoints)}</td>`;
+    html += `<td class="left">${getCauseOfRating(u)}</td>`;
+    html += `</tr>`;
+  });
+
+  html += `<tr class="total-row">`;
+  html += `<td class="left"><strong>Regional Aggregate (${urows.length} UWs)</strong></td>`;
+  html += `<td style="text-align:center;"><strong>${totalDays}</strong> days</td>`;
+  html += `<td style="text-align:center;"><strong>${totalFarmers.toLocaleString()}</strong> farmers</td>`;
+  html += `<td style="text-align:center;"><strong>${totalPts}</strong> pts</td>`;
+  html += `<td class="left"><strong>Avg: ${avgScore.toFixed(2)}</strong></td>`;
+  html += `<td style="text-align:center;"><span style="font-size:11px;">${compliantCount} Compliant &middot; ${actionCount} Actionable</span></td>`;
+  html += `<td class="left" style="font-size:11px;color:var(--muted);">&mdash;</td>`;
+  html += `</tr>`;
+  html += '</tbody></table>';
+
+  // Notes box explaining rating scale and context metrics
+  html += '<div style="font-size:11px;color:var(--muted);margin-top:14px;line-height:1.6;border-top:1px dashed var(--line);padding-top:10px;"><strong>⚖️ Harmonized SPMS Rating &amp; Operational Context Policy:</strong>';
+  html += '<ul style="margin:4px 0 0 16px;padding:0;">';
+  html += '<li><strong>Civil Service / SPMS 5.00 Rating Scale:</strong> <strong>5.00 (Outstanding / O)</strong> = 0 infraction points; <strong>4.00&ndash;4.99 (Very Satisfactory / VS)</strong> = 1&ndash;3 points (Admonition); <strong>3.00&ndash;3.99 (Satisfactory / S)</strong> = 4&ndash;6 points (Reprimand); <strong>2.00&ndash;2.99 (Unsatisfactory / US)</strong> = 7&ndash;9 points (Written Warning); <strong>1.00 (Poor / P)</strong> = &ge;10 points (Memorandum).</li>';
+  html += '<li><strong>Operational Context Independence:</strong> <em>Days Travelled</em> and <em>Farmers Assisted</em> reflect field output and operational reach. They are presented for administrative supervision and executive context only; they <strong>do not alter, penalize, or distort</strong> the objective compliance rating.</li>';
+  html += '<li><strong>Subsequent Compliance (Late Submission):</strong> Submitting an overdue weekly report cures the 3-point <em>Unreported Travel</em> penalty and converts it to a standard <strong>1-point Late Report</strong> infraction. Submitting late is always preferred over non-reporting.</li>';
+  html += '<li><strong>Grace Buffer for Unreported Weeks:</strong> Missing 1 isolated week in a month is granted a grace buffer (0 penalty points). If no input is declared after 2 weeks, a strict penalty of <strong>3 points per undeclared week (&times;3)</strong> applies.</li>';
+  html += '<li><strong>Legitimate Non-Travel:</strong> Underwriters working at the office or on approved leave clear attendance by declaring <code>NO TRAVEL - OFFICE DUTY</code> or <code>NO TRAVEL - ON LEAVE</code>.</li>';
+  html += '</ul></div>';
+
   el.innerHTML = html;
 }
 
@@ -1652,7 +2297,7 @@ function toggleTheme() {
   applyTheme(next);
 }
 function switchTab(tabId) {
-  if (tabId !== 'travel' && tabId !== 'compliance') tabId = 'accomplishment';
+  if (tabId !== 'travel' && tabId !== 'compliance' && tabId !== 'rating') tabId = 'accomplishment';
   try { sessionStorage.setItem('pcic_active_tab', tabId); } catch(e) {}
   document.querySelectorAll('.nav-tab').forEach(b => {
     b.classList.toggle('active', b.dataset.tab === tabId);
@@ -1660,17 +2305,24 @@ function switchTab(tabId) {
   const secAcc = document.getElementById('secAccomplishment');
   const secTrv = document.getElementById('secTravel');
   const secCmp = document.getElementById('secCompliance');
+  const secRat = document.getElementById('secRating');
 
   if (secAcc) secAcc.style.display = tabId === 'accomplishment' ? '' : 'none';
   if (secTrv) secTrv.style.display = tabId === 'travel' ? '' : 'none';
   if (secCmp) secCmp.style.display = tabId === 'compliance' ? '' : 'none';
+  if (secRat) secRat.style.display = tabId === 'rating' ? '' : 'none';
 
   if (tabId === 'travel') {
-    renderWeeklySummary();
-    renderSheetSummary();
+    if ((!travelUw || travelUw === 'ALL') && sessionUser && sessionUser.name && underwriters.includes(sessionUser.name)) {
+      travelUw = sessionUser.name;
+    }
+    renderTravelSummary();
   }
   if (tabId === 'compliance') {
     renderCompliance();
+  }
+  if (tabId === 'rating') {
+    renderRatingAssessment();
   }
 }
 
