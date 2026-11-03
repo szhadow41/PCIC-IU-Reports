@@ -2164,8 +2164,9 @@ function renderCompliance() {
     html += '</div>';
 
     // Regional Matrix Table
-    html += '<div style="margin-bottom:12px;font-size:12px;color:var(--muted);">Click any underwriter\'s name to inspect their itemized root-cause evidence.</div>';
+    html += '<div style="margin-bottom:12px;font-size:12px;color:var(--muted);">Click any underwriter\'s name to inspect their itemized root-cause evidence. Arranged by rank from highest to lowest compliance standing.</div>';
     html += '<table><thead><tr>';
+    html += '<th style="text-align:center;width:60px;">Rank</th>';
     html += '<th style="text-align:left;">Underwriter</th>';
     html += '<th style="text-align:center;">Unreported Travel (×3) <button class="th-info-btn" onclick="openInfractionHelp(\'unreported\')" title="Click for explanation" type="button">ℹ</button></th>';
     html += '<th style="text-align:center;">Zero Commodity <button class="th-info-btn" onclick="openInfractionHelp(\'commodity\')" title="Click for explanation" type="button">ℹ</button></th>';
@@ -2176,8 +2177,26 @@ function renderCompliance() {
     html += '<th style="text-align:center;">Assessment Status</th>';
     html += '</tr></thead><tbody>';
 
-    matrix.sort((a, b) => a.underwriter.localeCompare(b.underwriter)).forEach(m => {
+    matrix.sort((a, b) => {
+      if (a.total !== b.total) return a.total - b.total;
+      return a.underwriter.localeCompare(b.underwriter);
+    });
+
+    let currentCompRank = 1;
+    matrix.forEach((m, idx) => {
+      if (idx > 0 && matrix[idx - 1].total !== m.total) {
+        currentCompRank = idx + 1;
+      }
+      m.rank = currentCompRank;
+
+      let rankBadge = '';
+      if (m.total === 0) rankBadge = '<span class="badge-status badge-ok" style="font-weight:700;padding:2px 8px;">🥇 #1</span>';
+      else if (m.rank === 2) rankBadge = '<span class="badge-status" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;font-weight:700;padding:2px 8px;">🥈 #2</span>';
+      else if (m.rank === 3) rankBadge = '<span class="badge-status" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;font-weight:700;padding:2px 8px;">🥉 #3</span>';
+      else rankBadge = `<span style="font-weight:600;color:var(--muted);font-size:12px;">#${m.rank}</span>`;
+
       html += `<tr>`;
+      html += `<td style="text-align:center;">${rankBadge}</td>`;
       html += `<td class="left"><a href="javascript:void(0)" onclick="selectCompUnderwriter('${escHtml(m.underwriter)}')" style="font-weight:600;color:var(--brand-dark);text-decoration:underline;">${escHtml(m.underwriter)}</a></td>`;
       html += `<td style="text-align:center;">${m.nonDecPoints > 0 ? '<strong>' + m.nonDecPoints + '</strong>' : (m.graceMonths > 0 ? '0 <span style="font-size:10px;color:var(--muted);">(grace)</span>' : '0')}</td>`;
       html += `<td style="text-align:center;">${m.commodity}</td>`;
@@ -2190,7 +2209,7 @@ function renderCompliance() {
     });
 
     html += `<tr class="total-row">`;
-    html += `<td class="left"><strong>Regional Total (${underwriters.length} UWs)</strong></td>`;
+    html += `<td class="left" colspan="2"><strong>Regional Total (${underwriters.length} UWs)</strong></td>`;
     html += `<td style="text-align:center;">${matrix.reduce((s, m) => s + m.nonDecPoints, 0)}</td>`;
     html += `<td style="text-align:center;">${matrix.reduce((s, m) => s + m.commodity, 0)}</td>`;
     html += `<td style="text-align:center;">${matrix.reduce((s, m) => s + m.overlong, 0)}</td>`;
@@ -2414,7 +2433,29 @@ function renderRatingAssessment() {
     u.spms = calcSpmsRating(u.totalPoints);
   });
 
-  const urows = Object.values(uwMap).sort((a, b) => a.underwriter.localeCompare(b.underwriter));
+  const urows = Object.values(uwMap).sort((a, b) => {
+    // 1. Highest SPMS score first (5.00 -> 1.00)
+    if (b.spms.score !== a.spms.score) return b.spms.score - a.spms.score;
+    // 2. Fewest infraction points first (0 pts -> higher)
+    if (a.totalPoints !== b.totalPoints) return a.totalPoints - b.totalPoints;
+    // 3. Highest farmers reached (outreach)
+    if (b.farmers !== a.farmers) return b.farmers - a.farmers;
+    // 4. Highest days travelled
+    if (b.days !== a.days) return b.days - a.days;
+    // 5. Alphabetical tie-breaker
+    return a.underwriter.localeCompare(b.underwriter);
+  });
+
+  let currentRatingRank = 1;
+  urows.forEach((u, idx) => {
+    if (idx > 0) {
+      const prev = urows[idx - 1];
+      if (prev.spms.score !== u.spms.score || prev.totalPoints !== u.totalPoints) {
+        currentRatingRank = idx + 1;
+      }
+    }
+    u.rank = currentRatingRank;
+  });
 
   // Compute summary stats
   const totalDays = urows.reduce((s, u) => s + u.days, 0);
@@ -2436,6 +2477,7 @@ function renderRatingAssessment() {
 
   // Main Assessment Table
   html += '<table style="margin-top:10px;"><thead><tr>';
+  html += '<th style="text-align:center;width:60px;">Rank</th>';
   html += '<th style="text-align:left;">Underwriter</th>';
   html += '<th style="text-align:center;">Days Travelled <span style="display:block;font-size:10px;font-weight:normal;color:var(--muted);">(Context only)</span></th>';
   html += '<th style="text-align:center;">Farmers Assisted <span style="display:block;font-size:10px;font-weight:normal;color:var(--muted);">(Context only)</span></th>';
@@ -2446,7 +2488,14 @@ function renderRatingAssessment() {
   html += '</tr></thead><tbody>';
 
   urows.forEach(u => {
+    let rankBadge = '';
+    if (u.rank === 1) rankBadge = '<span class="badge-status badge-ok" style="font-weight:700;padding:2px 8px;">🥇 #1</span>';
+    else if (u.rank === 2) rankBadge = '<span class="badge-status" style="background:#f1f5f9;color:#334155;border:1px solid #cbd5e1;font-weight:700;padding:2px 8px;">🥈 #2</span>';
+    else if (u.rank === 3) rankBadge = '<span class="badge-status" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;font-weight:700;padding:2px 8px;">🥉 #3</span>';
+    else rankBadge = `<span style="font-weight:600;color:var(--muted);font-size:12px;">#${u.rank}</span>`;
+
     html += `<tr>`;
+    html += `<td style="text-align:center;">${rankBadge}</td>`;
     html += `<td class="left"><strong>${escHtml(u.underwriter)}</strong></td>`;
     html += `<td style="text-align:center;"><strong>${u.days}</strong> <span style="font-size:11px;color:var(--muted);">day${u.days === 1 ? '' : 's'}</span></td>`;
     html += `<td style="text-align:center;"><strong>${u.farmers.toLocaleString()}</strong> <span style="font-size:11px;color:var(--muted);">farmers</span></td>`;
@@ -2458,7 +2507,7 @@ function renderRatingAssessment() {
   });
 
   html += `<tr class="total-row">`;
-  html += `<td class="left"><strong>Regional Aggregate (${urows.length} UWs)</strong></td>`;
+  html += `<td class="left" colspan="2"><strong>Regional Aggregate (${urows.length} UWs)</strong></td>`;
   html += `<td style="text-align:center;"><strong>${totalDays}</strong> days</td>`;
   html += `<td style="text-align:center;"><strong>${totalFarmers.toLocaleString()}</strong> farmers</td>`;
   html += `<td style="text-align:center;"><strong>${totalPts}</strong> pts</td>`;
