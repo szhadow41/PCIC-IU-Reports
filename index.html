@@ -1094,34 +1094,56 @@ async function fetchSheetMonth(label) {
   }
 }
 
-function currentSemesterKey() {
+function currentQuarterKey() {
   const now = new Date();
-  return now.getFullYear() + (now.getMonth() < 6 ? '-H1' : '-H2');
+  const q = Math.floor(now.getMonth() / 3) + 1;
+  return now.getFullYear() + '-Q' + q;
 }
-function currentQuarterKey() { return currentSemesterKey(); }
+function currentSemesterKey() { return currentQuarterKey(); }
 
-function reportingSemesters() {
+function reportingQuarters() {
   const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   const now = new Date();
   const cy = now.getFullYear();
   const list = [];
   [cy, cy - 1].forEach(y => {
     list.push({
-      key: y + '-H2',
-      label: '2nd Half ' + y + ' (Jul–Dec)',
-      shortLabel: '2nd Half ' + y,
-      months: [MON[6] + ' ' + y, MON[7] + ' ' + y, MON[8] + ' ' + y, MON[9] + ' ' + y, MON[10] + ' ' + y, MON[11] + ' ' + y]
+      key: y + '-Q4',
+      label: '4th Quarter ' + y + ' (Oct–Dec)',
+      shortLabel: '4th Quarter ' + y,
+      year: y,
+      quarter: 4,
+      months: [MON[9] + ' ' + y, MON[10] + ' ' + y, MON[11] + ' ' + y]
     });
     list.push({
-      key: y + '-H1',
-      label: '1st Half ' + y + ' (Jan–Jun)',
-      shortLabel: '1st Half ' + y,
-      months: [MON[0] + ' ' + y, MON[1] + ' ' + y, MON[2] + ' ' + y, MON[3] + ' ' + y, MON[4] + ' ' + y, MON[5] + ' ' + y]
+      key: y + '-Q3',
+      label: '3rd Quarter ' + y + ' (Jul–Sep)',
+      shortLabel: '3rd Quarter ' + y,
+      year: y,
+      quarter: 3,
+      months: [MON[6] + ' ' + y, MON[7] + ' ' + y, MON[8] + ' ' + y]
+    });
+    list.push({
+      key: y + '-Q2',
+      label: '2nd Quarter ' + y + ' (Apr–Jun)',
+      shortLabel: '2nd Quarter ' + y,
+      year: y,
+      quarter: 2,
+      months: [MON[3] + ' ' + y, MON[4] + ' ' + y, MON[5] + ' ' + y]
+    });
+    list.push({
+      key: y + '-Q1',
+      label: '1st Quarter ' + y + ' (Jan–Mar)',
+      shortLabel: '1st Quarter ' + y,
+      year: y,
+      quarter: 1,
+      months: [MON[0] + ' ' + y, MON[1] + ' ' + y, MON[2] + ' ' + y]
     });
   });
   return list;
 }
-function reportingYearQuarters() { return reportingSemesters(); }
+function reportingYearQuarters() { return reportingQuarters(); }
+function reportingSemesters() { return reportingQuarters(); }
 
 function isoDate(d) {
   const m = d.getMonth() + 1, day = d.getDate();
@@ -1302,12 +1324,12 @@ function renderCompliance() {
   if (compSel) compUw = compSel.value;
   const compPeriodSel = document.getElementById('compPeriodFilter') || document.getElementById('compQFilter');
   if (compPeriodSel) compPeriod = compPeriodSel.value;
-  if (!compPeriod || !reportingSemesters().some(s => s.key === compPeriod)) compPeriod = currentSemesterKey();
+  if (!compPeriod || !reportingQuarters().some(q => q.key === compPeriod)) compPeriod = currentQuarterKey();
   compQ = compPeriod;
-  const semesters = reportingSemesters();
-  const selPeriod = semesters.find(s => s.key === compPeriod) || semesters[0];
+  const quarters = reportingQuarters();
+  const selPeriod = quarters.find(q => q.key === compPeriod) || quarters[0];
   const selPeriodMonths = new Set(selPeriod.months);
-  const compPeriodHtml = '<select id="compPeriodFilter" onchange="compPeriodChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;">' + semesters.map(s => '<option value="' + s.key + '"' + (s.key === compPeriod ? ' selected' : '') + '>' + escHtml(s.label) + '</option>').join('') + '</select>';
+  const compPeriodHtml = '<select id="compPeriodFilter" onchange="compPeriodChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;">' + quarters.map(q => '<option value="' + q.key + '"' + (q.key === compPeriod ? ' selected' : '') + '>' + escHtml(q.label) + '</option>').join('') + '</select>';
   const compSelHtml = '<select id="compUwFilter" onchange="compUwChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">Select underwriter…</option><option value="ALL"' + (compUw === 'ALL' ? ' selected' : '') + '>All</option>' + [...underwriters].sort().map(u => '<option value="' + u + '"' + (u === compUw ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>';
   const compRefreshHtml = '<button onclick="reloadComplianceData()" style="font-size:11px;padding:2px 10px;border:1px solid #e2e8f0;border-radius:4px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;margin-left:6px;">Refresh</button>';
   const head = '<h3>Report Infractions ' + compPeriodHtml + compSelHtml + compRefreshHtml + '</h3>';
@@ -1415,7 +1437,7 @@ function renderCompliance() {
   });
   const urows = Object.values(uwTotals).sort((a, b) => a.underwriter.localeCompare(b.underwriter));
   const gt = { nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, total: 0 };
-  html += '<h3>Semestral Infraction &amp; SPMS Rating Assessment (' + escHtml(selPeriod.label) + ')</h3><table><tr><th>Underwriter</th><th>Unreported Travel / No-Travel (×3) <button class="th-info-btn" onclick="openInfractionHelp(\'unreported\')" title="Click for explanation" type="button">ℹ</button></th><th>Zero Viable Commodity <button class="th-info-btn" onclick="openInfractionHelp(\'commodity\')" title="Click for explanation" type="button">ℹ</button></th><th>Excessive Duration (&gt;5 Days) <button class="th-info-btn" onclick="openInfractionHelp(\'duration\')" title="Click for explanation" type="button">ℹ</button></th><th>Duplicate Entry <button class="th-info-btn" onclick="openInfractionHelp(\'duplicate\')" title="Click for explanation" type="button">ℹ</button></th><th>Late Report <button class="th-info-btn" onclick="openInfractionHelp(\'late\')" title="Click for explanation" type="button">ℹ</button></th><th>Total Points</th><th>SPMS Rating (1.00–5.00)</th><th>Assessment</th></tr>';
+  html += '<h3>Quarterly Infraction &amp; SPMS Rating Assessment (' + escHtml(selPeriod.label) + ')</h3><table><tr><th>Underwriter</th><th>Unreported Travel / No-Travel (×3) <button class="th-info-btn" onclick="openInfractionHelp(\'unreported\')" title="Click for explanation" type="button">ℹ</button></th><th>Zero Viable Commodity <button class="th-info-btn" onclick="openInfractionHelp(\'commodity\')" title="Click for explanation" type="button">ℹ</button></th><th>Excessive Duration (&gt;5 Days) <button class="th-info-btn" onclick="openInfractionHelp(\'duration\')" title="Click for explanation" type="button">ℹ</button></th><th>Duplicate Entry <button class="th-info-btn" onclick="openInfractionHelp(\'duplicate\')" title="Click for explanation" type="button">ℹ</button></th><th>Late Report <button class="th-info-btn" onclick="openInfractionHelp(\'late\')" title="Click for explanation" type="button">ℹ</button></th><th>Total Points</th><th>SPMS Rating (1.00–5.00)</th><th>Assessment</th></tr>';
   urows.forEach(u => {
     const utot = u.nonDec + u.commodity + u.overlong + u.dupe + u.late;
     gt.nonDec += u.nonDec; gt.commodity += u.commodity; gt.overlong += u.overlong; gt.dupe += u.dupe; gt.late += u.late; gt.total += utot;
@@ -1423,7 +1445,7 @@ function renderCompliance() {
     html += `<tr><td class="left"><strong>${escHtml(u.underwriter)}</strong></td><td>${u.nonDec > 0 ? '<strong>' + u.nonDec + '</strong>' : (rows.some(r => r.underwriter === u.underwriter && r.nonDec === 1) ? '0 <span style="font-size:10px;color:var(--muted);">(grace)</span>' : '0')}</td><td>${u.commodity}</td><td>${u.overlong}</td><td>${u.dupe}</td><td>${u.late}</td><td><strong>${utot}</strong></td><td><strong style="font-size:13px;color:${spms.color};">${spms.score.toFixed(2)}</strong> <span style="font-size:10px;color:var(--muted);">${spms.label} (${spms.code})</span></td><td>${assessAdminStatus(utot)}</td></tr>`;
   });
   html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td>${gt.nonDec}</td><td>${gt.commodity}</td><td>${gt.overlong}</td><td>${gt.dupe}</td><td>${gt.late}</td><td><strong>${gt.total}</strong></td><td>&mdash;</td><td>&mdash;</td></tr>`;
-  html += '</table><div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;border-top:1px dashed var(--line);padding-top:8px;"><strong>⚖️ Harmonized SPMS Semestral Compliance Rules:</strong><ul style="margin:4px 0 0 16px;padding:0;"><li><strong>Semestral Assessment Period:</strong> Evaluated semestrally per 1st Half (January&ndash;June) and 2nd Half (July&ndash;December).</li><li><strong>Civil Service / SPMS 5.00 Rating Scale:</strong> <strong>5.00 (Outstanding / O)</strong> = 0 infraction points; <strong>4.00&ndash;4.99 (Very Satisfactory / VS)</strong> = 1&ndash;3 points (Admonition); <strong>3.00&ndash;3.99 (Satisfactory / S)</strong> = 4&ndash;6 points (Reprimand); <strong>2.00&ndash;2.99 (Unsatisfactory / US)</strong> = 7&ndash;9 points (Written Warning); <strong>1.00 (Poor / P)</strong> = &ge;10 points (Memorandum).</li><li><strong>Subsequent Compliance (Late Submission):</strong> Submitting an overdue weekly report cures the 3-point <em>Unreported Travel</em> penalty and converts it to a standard <strong>1-point Late Report</strong> infraction. Submitting late is always preferred over non-reporting.</li><li><strong>Failure to Declare (Unreported):</strong> 1 undeclared week in a month is granted a grace buffer (0 pts). If no input is declared after 2 weeks, a strict penalty of <strong>3 points per undeclared week (&times;3)</strong> applies.</li><li><strong>Legitimate Non-Travel:</strong> Underwriters working at the office or on approved leave can clear attendance by declaring <code>NO TRAVEL - OFFICE DUTY</code> or <code>NO TRAVEL - ON LEAVE</code>.</li></ul></div>';
+  html += '</table><div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;border-top:1px dashed var(--line);padding-top:8px;"><strong>⚖️ Harmonized Quarterly Compliance Rules &amp; SPMS Rating:</strong><ul style="margin:4px 0 0 16px;padding:0;"><li><strong>Quarterly Assessment Period:</strong> Evaluated quarterly per 1st Quarter (January&ndash;March), 2nd Quarter (April&ndash;June), 3rd Quarter (July&ndash;September), and 4th Quarter (October&ndash;December).</li><li><strong>Civil Service / SPMS 5.00 Rating Scale:</strong> <strong>5.00 (Outstanding / O)</strong> = 0 infraction points; <strong>4.00&ndash;4.99 (Very Satisfactory / VS)</strong> = 1&ndash;3 points (Admonition); <strong>3.00&ndash;3.99 (Satisfactory / S)</strong> = 4&ndash;6 points (Reprimand); <strong>2.00&ndash;2.99 (Unsatisfactory / US)</strong> = 7&ndash;9 points (Written Warning); <strong>1.00 (Poor / P)</strong> = &ge;10 points (Memorandum).</li><li><strong>Subsequent Compliance (Late Submission):</strong> Submitting an overdue weekly report cures the 3-point <em>Unreported Travel</em> penalty and converts it to a standard <strong>1-point Late Report</strong> infraction. Submitting late is always preferred over non-reporting.</li><li><strong>Failure to Declare (Unreported):</strong> 1 undeclared week in a month is granted a grace buffer (0 pts). If no input is declared after 2 weeks, a strict penalty of <strong>3 points per undeclared week (&times;3)</strong> applies.</li><li><strong>Legitimate Non-Travel:</strong> Underwriters working at the office or on approved leave can clear attendance by declaring <code>NO TRAVEL - OFFICE DUTY</code> or <code>NO TRAVEL - ON LEAVE</code>.</li></ul></div>';
   }
   el.innerHTML = html;
 }
