@@ -1089,6 +1089,10 @@ function renderTravelSummary() {
     const uw = travelUw;
     const uwRows = travelRows.filter(r => (r.underwriter || '').trim().toUpperCase() === uw.trim().toUpperCase());
 
+    const now = new Date();
+    const curMVal = now.getFullYear() * 12 + now.getMonth();
+    const isPastMonth = mval(travelMonth) < curMVal;
+
     let declaredWeeksCount = 0;
     let evaluatedWeeksCount = 0;
     let missingWeeksCount = 0;
@@ -1097,6 +1101,17 @@ function renderTravelSummary() {
     const toSet = new Set();
     const seenTravelBlocks = new Set();
     let totalFarmers = 0;
+
+    const totalMissingInMonth = weeks.filter(w => {
+      if (w.isFuture || w.isCurrent) return false;
+      const wRows = uwRows.filter(r => {
+        if (!r.startDate) return false;
+        const s = r.startDate;
+        const e = r.endDate || s;
+        return (s <= w.end && e >= w.start) || w.days.includes(s);
+      });
+      return wRows.length === 0;
+    }).length;
 
     const weekCards = [];
 
@@ -1181,13 +1196,21 @@ function renderTravelSummary() {
           evaluatedWeeksCount++;
           badge = '<span class="badge-status badge-memo">🔴 Missing / Undeclared</span>';
 
-          const isGrace = missingWeeksCount === 1;
-          const warningBg = isGrace ? '#fffbeb' : '#fef2f2';
-          const warningBc = isGrace ? '#fde68a' : '#fecaca';
-          const warningColor = isGrace ? '#92400e' : '#991b1b';
-          const penaltyText = isGrace
-            ? '🟡 <strong>1st Undeclared Week (Grace Buffer):</strong> No penalty points charged yet. Submit immediately before it becomes a 3-point infraction!'
-            : '🚨 <strong>Strict Penalty Warning (×3):</strong> Missing after grace! Incurs a <strong>3-point penalty</strong> on SPMS compliance rating.';
+          let warningBg = '#fef2f2';
+          let warningBc = '#fecaca';
+          let warningColor = '#991b1b';
+          let penaltyText = '';
+
+          if (totalMissingInMonth >= 2) {
+            penaltyText = '🚨 <strong>Strict Multi-Week Penalty (×3):</strong> Missing ' + totalMissingInMonth + ' weeks in ' + escHtml(travelMonth) + '! Incurs a <strong>3-point penalty</strong> per week on SPMS compliance rating (grace cushion revoked).';
+          } else if (isPastMonth) {
+            penaltyText = '🚨 <strong>Closed Month Infraction (×3):</strong> Reporting month ' + escHtml(travelMonth) + ' has already closed without declaration. Grace window has expired; incurs a <strong>3-point penalty</strong> on SPMS rating.';
+          } else {
+            warningBg = '#fffbeb';
+            warningBc = '#fde68a';
+            warningColor = '#92400e';
+            penaltyText = '🟡 <strong>1st Undeclared Week (Active Grace Buffer):</strong> No penalty points charged yet. Current month is active; submit immediately before month closure or a 2nd missed week!';
+          }
 
           contentHtml = `<div style="background:${warningBg};border:1px solid ${warningBc};border-radius:6px;padding:8px 12px;margin-top:6px;font-size:12px;color:${warningColor};">
             <strong>⚠️ FORGOT TO DECLARE:</strong> No travel order, office duty, or leave was submitted for this week (${escHtml(formatWeekRange(w.start, w.end))})!<br>
@@ -1415,7 +1438,7 @@ function renderTravelSummary() {
   html += '<div style="font-size:11px;color:var(--muted);margin-top:14px;line-height:1.6;border-top:1px dashed var(--line);padding-top:10px;"><strong>⚖️ Weekly Attendance Accountability &amp; Travel Rules:</strong>';
   html += '<ul style="margin:4px 0 0 16px;padding:0;">';
   html += '<li><strong>Weekly Accountability:</strong> Every Monday–Friday working week must have a corresponding travel order or a declared <code>NO TRAVEL - OFFICE DUTY</code> / <code>NO TRAVEL - ON LEAVE</code> entry.</li>';
-  html += '<li><strong>Grace Buffer for 1st Undeclared Week:</strong> Missing 1 isolated week in a month is granted a grace window (0 penalty points) to accommodate batch reporting.</li>';
+  html += '<li><strong>Grace Buffer for 1st Undeclared Week:</strong> Missing 1 isolated week in the active current month is granted an active grace buffer (0 penalty points). Missing 2 or more weeks in a month revokes the grace buffer (3 pts/week across all missing weeks), and undeclared weeks in past closed months expire into 3-point infractions.</li>';
   html += '<li><strong>Strict 2-Week Cut-off:</strong> If no input is declared after 2 weeks, a penalty of <strong>3 points per undeclared week (&times;3)</strong> is charged against the underwriter\'s compliance rating.</li>';
   html += '<li><strong>Late Filing Cure:</strong> Submitting a delayed weekly accomplishment converts the severe 3-point Non-Declaration penalty into a minor <strong>1-point Late Report</strong> deduction. Submitting late is always preferred over non-reporting.</li>';
   html += '</ul></div>';
@@ -1613,8 +1636,9 @@ const INFRACTION_RULES = {
     badgeColor: '#dc2626',
     desc: 'Field underwriters are required to account for every active working week (Monday–Friday) in the reporting period.',
     details: [
-      '<strong>1-Week Grace Window:</strong> Missing 1 isolated week is granted a grace buffer (0 penalty points) to accommodate field travel delays or batch reporting.',
-      '<strong>Strict 2-Week Cut-off:</strong> If an underwriter fails to provide any input after 2 weeks, a strict penalty of <strong>3 points per undeclared week (×3)</strong> is charged.',
+      '<strong>Active Grace Window:</strong> Missing 1 isolated week in the active current month is granted an active grace buffer (0 penalty points) to accommodate batch reporting before month-end.',
+      '<strong>Multi-Week Revocation:</strong> If an underwriter misses 2 or more weeks in a month, the grace buffer is revoked and a strict penalty of <strong>3 points per undeclared week (×3)</strong> is charged against all missing weeks.',
+      '<strong>Closed Month Expiration:</strong> Once a reporting month closes, undeclared weeks expire into 3-point infractions. Grace buffers do not apply to past closed months.',
       '<strong>Harmonized Late Cure:</strong> Submitting an overdue weekly report cures the 3-point <em>Unreported Travel</em> penalty and converts it to a standard <strong>1-point Late Report</strong> infraction. Submitting late is always preferred over non-reporting.',
       '<strong>In-Office & Leaves:</strong> If not traveling, select <code>NO TRAVEL - OFFICE DUTY</code> or <code>NO TRAVEL - ON LEAVE</code> to maintain a 100% compliant record.'
     ]
@@ -1895,8 +1919,15 @@ function renderCompliance() {
   });
 
   // 3. Process Undeclared Weeks per month
+  const now = new Date();
+  const curMVal = now.getFullYear() * 12 + now.getMonth();
+  const calcNonDecPoints = (nonDecWeeks, isPast) => {
+    if (nonDecWeeks >= 2) return nonDecWeeks * 3;
+    if (nonDecWeeks === 1) return isPast ? 3 : 0;
+    return 0;
+  };
+
   const labels = sheetMonthOptions();
-  const nonDecMonthCounts = {};
   labels.filter(label => selPeriodMonths.has(label)).forEach(label => {
     const parts = label.split(' ');
     const yr = +parts[1], mi = MON_IDX[parts[0]];
@@ -1905,44 +1936,56 @@ function renderCompliance() {
     const stubSize = dow === 0 ? 0 : 6 - dow;
     if (dow === 4 && stubSize >= 3 && stubSize < 5 && weeks.length) { weeks = weeks.slice(1); }
     
-    weeks.forEach(w => {
-      underwriters.forEach(uw => {
-        if (!w.days.some(d => present.has(String(uw).trim().toUpperCase() + '|' + d))) {
-          const k = uw + '|' + label;
-          if (!groups[k]) groups[k] = { underwriter: uw, month: label, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, tos: new Set() };
-          groups[k].nonDec++;
+    const isPastMonth = mval(label) < curMVal;
 
-          const mk = uw + '|' + label;
-          if (!nonDecMonthCounts[mk]) nonDecMonthCounts[mk] = 0;
-          nonDecMonthCounts[mk]++;
-          const countInMonth = nonDecMonthCounts[mk];
-          const isGrace = (countInMonth === 1);
-          const pts = isGrace ? 0 : 3;
+    underwriters.forEach(uw => {
+      const missingWeeks = weeks.filter(w => !w.days.some(d => present.has(String(uw).trim().toUpperCase() + '|' + d)));
+      const totMissing = missingWeeks.length;
+      if (totMissing === 0) return;
 
-          evidenceList.push({
-            underwriter: uw,
-            month: label,
-            type: 'UNREPORTED',
-            icon: '🚗',
-            title: 'Unreported Travel / Undeclared Week',
-            points: pts,
-            isGrace: isGrace,
-            badgeClass: isGrace ? 'badge-admonition' : 'badge-memo',
-            travelOrder: '(none)',
-            weekLabel: w.label,
-            startDate: w.days[0],
-            endDate: w.days[w.days.length - 1],
-            evidenceText: `Zero accomplishment or attendance entries were declared for <strong>${w.label} (${formatWeekRange(w.days[0], w.days[w.days.length - 1])})</strong>.`,
-            remediationText: isGrace
-              ? `🟡 <strong>1st Undeclared Week (Grace Buffer):</strong> 0 penalty points charged. Submit your accomplishment or declare <code>NO TRAVEL - OFFICE DUTY</code> now before strict penalties apply.`
-              : `🚨 <strong>Strict 2-Week Cut-off (×3):</strong> Incurs a <strong>3-point penalty</strong>. <em>Harmonization Benefit: Submitting a late report cures this 3-point penalty into a minor 1-point Late Report.</em>`
-          });
+      const k = uw + '|' + label;
+      if (!groups[k]) groups[k] = { underwriter: uw, month: label, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, tos: new Set() };
+      groups[k].nonDec = totMissing;
+
+      missingWeeks.forEach(w => {
+        let isGrace = false;
+        let pts = 3;
+        let remediation = '';
+
+        if (totMissing >= 2) {
+          isGrace = false;
+          pts = 3;
+          remediation = `🚨 <strong>Strict Multi-Week Cut-off (&times;3):</strong> Incurs a <strong>3-point penalty</strong>. Underwriter has ${totMissing} undeclared weeks in ${escHtml(label)}, revoking all grace cushions. <em>Harmonization Benefit: Submitting a late report cures this 3-point penalty into a minor 1-point Late Report.</em>`;
+        } else if (isPastMonth) {
+          isGrace = false;
+          pts = 3;
+          remediation = `🚨 <strong>Closed Month Infraction (&times;3):</strong> Incurs a <strong>3-point penalty</strong>. Reporting month ${escHtml(label)} has already passed and closed without declaration; grace buffer has expired. <em>Harmonization Benefit: Submitting a late report cures this 3-point penalty into a minor 1-point Late Report.</em>`;
+        } else {
+          isGrace = true;
+          pts = 0;
+          remediation = `🟡 <strong>1st Undeclared Week (Active Grace Buffer):</strong> 0 penalty points charged so far. Current month (${escHtml(label)}) is active. Submit your accomplishment or declare <code>NO TRAVEL - OFFICE DUTY</code> now before strict penalties apply upon month closure or a 2nd missed week.`;
         }
+
+        evidenceList.push({
+          underwriter: uw,
+          month: label,
+          type: 'UNREPORTED',
+          icon: '🚗',
+          title: 'Unreported Travel / Undeclared Week',
+          points: pts,
+          isGrace: isGrace,
+          badgeClass: isGrace ? 'badge-admonition' : 'badge-memo',
+          travelOrder: '(none)',
+          weekLabel: w.label,
+          startDate: w.days[0],
+          endDate: w.days[w.days.length - 1],
+          evidenceText: `Zero accomplishment or attendance entries were declared for <strong>${w.label} (${formatWeekRange(w.days[0], w.days[w.days.length - 1])})</strong>.`,
+          remediationText: remediation
+        });
       });
     });
   });
 
-  const calcNonDecPoints = (nonDecWeeks) => nonDecWeeks >= 2 ? nonDecWeeks * 3 : 0;
   let html = head;
 
   const badMonths = Object.keys(compSources).filter(l => compSources[l] === 'unreachable');
@@ -2034,13 +2077,14 @@ function renderCompliance() {
 
       let mt = { nonDec: 0, comm: 0, over: 0, dupe: 0, late: 0, total: 0 };
       compRows.forEach(g => {
-        const w = calcNonDecPoints(g.nonDec);
+        const isPast = mval(g.month) < curMVal;
+        const w = calcNonDecPoints(g.nonDec, isPast);
         const tot = w + g.commodity + g.overlong + g.dupe + g.late;
         mt.nonDec += w; mt.comm += g.commodity; mt.over += g.overlong; mt.dupe += g.dupe; mt.late += g.late; mt.total += tot;
         html += `<tr>`;
         html += `<td><strong>${escHtml(g.month)}</strong></td>`;
         html += `<td class="left">${[...g.tos].map(o => `<code>${escHtml(o)}</code>`).join('; ') || '&mdash;'}</td>`;
-        html += `<td>${g.nonDec === 1 ? '0 <span style="font-size:10px;color:var(--muted);">(grace)</span>' : (w > 0 ? '<strong>' + w + '</strong>' : '0')}</td>`;
+        html += `<td>${(!isPast && g.nonDec === 1) ? '0 <span style="font-size:10px;color:var(--muted);">(grace)</span>' : (w > 0 ? '<strong>' + w + '</strong>' : '0')}</td>`;
         html += `<td>${g.commodity}</td>`;
         html += `<td>${g.overlong}</td>`;
         html += `<td>${g.dupe}</td>`;
@@ -2081,10 +2125,11 @@ function renderCompliance() {
       let late = 0;
 
       Object.values(groups).filter(g => g.underwriter === uw && selPeriodMonths.has(g.month)).forEach(g => {
-        const pts = calcNonDecPoints(g.nonDec);
+        const isPast = mval(g.month) < curMVal;
+        const pts = calcNonDecPoints(g.nonDec, isPast);
         nonDecWeeks += g.nonDec;
         nonDecPoints += pts;
-        if (g.nonDec === 1) graceMonths++;
+        if (!isPast && g.nonDec === 1) graceMonths++;
         commodity += g.commodity;
         overlong += g.overlong;
         dupe += g.dupe;
@@ -2164,7 +2209,7 @@ function renderCompliance() {
   html += '</div>';
 
   // Harmonized Compliance Rules Note
-  html += '<div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;border-top:1px dashed var(--line);padding-top:8px;"><strong>⚖️ Harmonized Quarterly Compliance Rules &amp; Infraction Point System:</strong><ul style="margin:4px 0 0 16px;padding:0;"><li><strong>Quarterly Assessment Period:</strong> Evaluated quarterly per 1st Quarter (January&ndash;March), 2nd Quarter (April&ndash;June), 3rd Quarter (July&ndash;September), and 4th Quarter (October&ndash;December).</li><li><strong>Subsequent Compliance (Late Submission):</strong> Submitting an overdue weekly report cures the 3-point <em>Unreported Travel</em> penalty and converts it to a standard <strong>1-point Late Report</strong> infraction. Submitting late is always preferred over non-reporting.</li><li><strong>Failure to Declare (Unreported):</strong> 1 undeclared week in a month is granted a grace buffer (0 pts). If no input is declared after 2 weeks, a strict penalty of <strong>3 points per undeclared week (&times;3)</strong> applies.</li><li><strong>Legitimate Non-Travel:</strong> Underwriters working at the office or on approved leave clear attendance by declaring <code>NO TRAVEL - OFFICE DUTY</code> or <code>NO TRAVEL - ON LEAVE</code>.</li></ul></div>';
+  html += '<div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;border-top:1px dashed var(--line);padding-top:8px;"><strong>⚖️ Harmonized Quarterly Compliance Rules &amp; Infraction Point System:</strong><ul style="margin:4px 0 0 16px;padding:0;"><li><strong>Quarterly Assessment Period:</strong> Evaluated quarterly per 1st Quarter (January&ndash;March), 2nd Quarter (April&ndash;June), 3rd Quarter (July&ndash;September), and 4th Quarter (October&ndash;December).</li><li><strong>Subsequent Compliance (Late Submission):</strong> Submitting an overdue weekly report cures the 3-point <em>Unreported Travel</em> penalty and converts it to a standard <strong>1-point Late Report</strong> infraction. Submitting late is always preferred over non-reporting.</li><li><strong>Failure to Declare (Unreported):</strong> 1 undeclared week in the active current month is granted an active grace buffer (0 pts). Missing 2 or more weeks in a month revokes the grace buffer (3 pts/week across all missing weeks), and undeclared weeks in past closed months expire into 3-point infractions.</li><li><strong>Legitimate Non-Travel:</strong> Underwriters working at the office or on approved leave clear attendance by declaring <code>NO TRAVEL - OFFICE DUTY</code> or <code>NO TRAVEL - ON LEAVE</code>.</li></ul></div>';
 
   el.innerHTML = html;
 }
@@ -2178,9 +2223,9 @@ function getCauseOfRating(u) {
     items.push(`⏰ <strong>${u.late} Late Weekly Report${u.late > 1 ? 's' : ''}</strong> (&minus;${(u.late * 0.25).toFixed(2)} pts on SPMS · ${u.late} pt${u.late > 1 ? 's' : ''})`);
   }
   if (u.nonDecPoints > 0) {
-    items.push(`🚗 <strong>${u.nonDecWeeks} Undeclared Week${u.nonDecWeeks > 1 ? 's' : ''}</strong> (&times;3 severe penalty: ${u.nonDecPoints} pts)`);
+    items.push(`🚗 <strong>${u.nonDecWeeks} Undeclared Week${u.nonDecWeeks > 1 ? 's' : ''}</strong> (&times;3 penalty: ${u.nonDecPoints} pts)`);
   } else if (u.graceMonths > 0) {
-    items.push(`🚗 <em>1 Undeclared week in ${u.graceMonths} month${u.graceMonths > 1 ? 's' : ''} (grace buffer applied · 0 pts)</em>`);
+    items.push(`🚗 <em>1 Undeclared week in ${u.graceMonths} month${u.graceMonths > 1 ? 's' : ''} (active grace buffer · 0 pts)</em>`);
   }
   if (u.commodity > 0) {
     items.push(`🌾 <strong>${u.commodity} Zero Viable Commodity</strong> (&minus;${(u.commodity * 0.25).toFixed(2)} pts · ${u.commodity} pt${u.commodity > 1 ? 's' : ''})`);
@@ -2322,7 +2367,13 @@ function renderRatingAssessment() {
     if (d.to) groups[k].tos.add(d.to);
   });
 
-  const calcNonDecPoints = (nonDecWeeks) => nonDecWeeks >= 2 ? nonDecWeeks * 3 : 0;
+  const now = new Date();
+  const curMVal = now.getFullYear() * 12 + now.getMonth();
+  const calcNonDecPoints = (nonDecWeeks, isPast) => {
+    if (nonDecWeeks >= 2) return nonDecWeeks * 3;
+    if (nonDecWeeks === 1) return isPast ? 3 : 0;
+    return 0;
+  };
 
   // Build aggregate rating records per underwriter
   const uwMap = {};
@@ -2347,10 +2398,11 @@ function renderRatingAssessment() {
   Object.values(groups).filter(g => selPeriodMonths.has(g.month)).forEach(g => {
     if (!uwMap[g.underwriter]) return;
     const u = uwMap[g.underwriter];
-    const pts = calcNonDecPoints(g.nonDec);
+    const isPast = mval(g.month) < curMVal;
+    const pts = calcNonDecPoints(g.nonDec, isPast);
     u.nonDecWeeks += g.nonDec;
     u.nonDecPoints += pts;
-    if (g.nonDec === 1) u.graceMonths++;
+    if (!isPast && g.nonDec === 1) u.graceMonths++;
     u.commodity += g.commodity;
     u.overlong += g.overlong;
     u.dupe += g.dupe;
@@ -2422,7 +2474,7 @@ function renderRatingAssessment() {
   html += '<li><strong>Civil Service / SPMS 5.00 Rating Scale:</strong> <strong>5.00 (Outstanding / O)</strong> = 0 infraction points; <strong>4.00&ndash;4.99 (Very Satisfactory / VS)</strong> = 1&ndash;3 points (Admonition); <strong>3.00&ndash;3.99 (Satisfactory / S)</strong> = 4&ndash;6 points (Reprimand); <strong>2.00&ndash;2.99 (Unsatisfactory / US)</strong> = 7&ndash;9 points (Written Warning); <strong>1.00 (Poor / P)</strong> = &ge;10 points (Memorandum).</li>';
   html += '<li><strong>Operational Context Independence:</strong> <em>Days Travelled</em> and <em>Farmers Assisted</em> reflect field output and operational reach. They are presented for administrative supervision and executive context only; they <strong>do not alter, penalize, or distort</strong> the objective compliance rating.</li>';
   html += '<li><strong>Subsequent Compliance (Late Submission):</strong> Submitting an overdue weekly report cures the 3-point <em>Unreported Travel</em> penalty and converts it to a standard <strong>1-point Late Report</strong> infraction. Submitting late is always preferred over non-reporting.</li>';
-  html += '<li><strong>Grace Buffer for Unreported Weeks:</strong> Missing 1 isolated week in a month is granted a grace buffer (0 penalty points). If no input is declared after 2 weeks, a strict penalty of <strong>3 points per undeclared week (&times;3)</strong> applies.</li>';
+  html += '<li><strong>Grace Buffer for Unreported Weeks:</strong> Missing 1 isolated week in the active current month is granted an active grace buffer (0 penalty points). Missing 2 or more weeks in a month revokes the grace buffer (3 pts/week across all missing weeks), and undeclared weeks in past closed months expire into 3-point infractions.</li>';
   html += '<li><strong>Legitimate Non-Travel:</strong> Underwriters working at the office or on approved leave clear attendance by declaring <code>NO TRAVEL - OFFICE DUTY</code> or <code>NO TRAVEL - ON LEAVE</code>.</li>';
   html += '</ul></div>';
 
