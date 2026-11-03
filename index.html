@@ -1724,106 +1724,448 @@ function assessAdminStatus(t) {
   return '<span class="badge-status badge-ok">🟢 Compliant</span>';
 }
 
+function selectCompUnderwriter(uw) {
+  compUw = uw;
+  const sel = document.getElementById('compUwFilter');
+  if (sel) sel.value = uw;
+  renderCompliance();
+}
+
 function renderCompliance() {
   const el = document.getElementById('complianceSection');
+  if (!el) return;
+
   const compSel = document.getElementById('compUwFilter');
   if (compSel) compUw = compSel.value;
   const compPeriodSel = document.getElementById('compPeriodFilter') || document.getElementById('compQFilter');
   if (compPeriodSel) compPeriod = compPeriodSel.value;
   if (!compPeriod || !reportingQuarters().some(q => q.key === compPeriod)) compPeriod = currentQuarterKey();
   compQ = compPeriod;
+
+  // Auto-select underwriter if user is an underwriter and compUw is empty
+  if ((!compUw || compUw === 'ALL') && sessionUser && sessionUser.name && underwriters.includes(sessionUser.name)) {
+    compUw = sessionUser.name;
+  }
+  if (!compUw) compUw = 'ALL';
+
   const quarters = reportingQuarters();
   const selPeriod = quarters.find(q => q.key === compPeriod) || quarters[0];
   const selPeriodMonths = new Set(selPeriod.months);
+
   const compPeriodHtml = '<select id="compPeriodFilter" onchange="compPeriodChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;">' + quarters.map(q => '<option value="' + q.key + '"' + (q.key === compPeriod ? ' selected' : '') + '>' + escHtml(q.label) + '</option>').join('') + '</select>';
-  const compSelHtml = '<select id="compUwFilter" onchange="compUwChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="">Select underwriter…</option><option value="ALL"' + (compUw === 'ALL' ? ' selected' : '') + '>All</option>' + [...underwriters].sort().map(u => '<option value="' + u + '"' + (u === compUw ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>';
+  const compSelHtml = '<select id="compUwFilter" onchange="compUwChanged()" style="font-size:11px;padding:2px 4px;border:1px solid #e2e8f0;border-radius:4px;font-family:inherit;margin-left:6px;"><option value="ALL"' + (compUw === 'ALL' ? ' selected' : '') + '>All Underwriters (Overview)</option>' + [...underwriters].sort().map(u => '<option value="' + u + '"' + (u === compUw ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>';
   const compRefreshHtml = '<button onclick="reloadComplianceData()" style="font-size:11px;padding:2px 10px;border:1px solid #e2e8f0;border-radius:4px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;margin-left:6px;">Refresh</button>';
-  const head = '<h3>Report Infractions ' + compPeriodHtml + compSelHtml + compRefreshHtml + '</h3>';
-  if (!compUw) { el.innerHTML = head + '<p>Select an underwriter to load the report.</p>'; return; }
-  if (compLoading) { el.innerHTML = head + '<p><span class="spin"></span>Loading…</p>'; return; }
+  const head = '<h3>⚖️ Compliance &amp; Infraction Audit ' + compPeriodHtml + compSelHtml + compRefreshHtml + '</h3>';
+
+  if (compLoading) { el.innerHTML = head + '<p><span class="spin"></span>Loading compliance data…</p>'; return; }
   if (compError && !compData.length) { el.innerHTML = head + '<p>Could not load monthly sheets. Check your connection.</p><p><button onclick="reloadComplianceData()" style="font-size:12px;padding:4px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#16a34a;color:#fff;cursor:pointer;font-family:inherit;">Reconnect</button></p>'; return; }
   if (!compData.length) { el.innerHTML = head + '<p>No entries found for this period.</p>'; return; }
+
   const present = new Set();
   compData.forEach(r => { if (r.underwriter && r.startDate) present.add(String(r.underwriter).trim().toUpperCase() + '|' + String(r.startDate).trim()); });
   const COMMODITIES = ['rice', 'corn', 'hvc', 'liv', 'fsh', 'nci', 'tip'];
   const groups = {};
   const dupeTally = {};
   const norm = (v, fold) => { const s = (v && String(v).trim()) || ''; return fold ? s.toUpperCase() : s; };
+  const evidenceList = [];
+
+  // 1. Process individual submitted rows
   compData.forEach(r => {
     const uw = (r.underwriter && String(r.underwriter).trim()) || '(blank)';
     const month = getMonth(r.startDate) || '(no date)';
+    if (!selPeriodMonths.has(month)) return;
+
+    const to = (r.travelOrder && String(r.travelOrder).trim()) || '(no TO)';
     const key = uw + '|' + month;
     if (!groups[key]) groups[key] = { underwriter: uw, month: month, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, tos: new Set() };
     const g = groups[key];
+
+    // Check Late
     if (isLate(r.startDate, r.submittedAt)) {
       g.late++;
-      const lto = (r.travelOrder && String(r.travelOrder).trim()) || '';
-      if (lto) g.tos.add(lto);
+      if (to) g.tos.add(to);
+      const due = cycleDue(r.startDate);
+      const sub = (r.submittedAt && String(r.submittedAt).slice(0, 10)) || '';
+      let daysLate = 1;
+      if (due && sub) {
+        daysLate = Math.max(1, Math.round((parseISODate(sub) - parseISODate(due)) / 86400000));
+      }
+      evidenceList.push({
+        underwriter: uw,
+        month: month,
+        type: 'LATE',
+        icon: '⏰',
+        title: 'Late Weekly Report',
+        points: 1,
+        badgeClass: 'badge-admonition',
+        travelOrder: to,
+        startDate: r.startDate,
+        endDate: r.endDate || r.startDate,
+        venue: r.venue || '',
+        agency: r.agency || '',
+        purpose: r.purpose || '',
+        dueDate: due,
+        submittedAt: sub,
+        daysLate: daysLate,
+        evidenceText: `Accomplishment for week of <strong>${formatWeekRange(r.startDate, r.endDate)}</strong> was due on <strong>${due} (Tuesday 11:59 PM)</strong>, but submitted on <strong>${sub}</strong> (${daysLate} day${daysLate === 1 ? '' : 's'} late).`,
+        remediationText: `Accomplishments must be submitted by Tuesday 11:59 PM following the reporting week. <em>Harmonization Benefit: Submitting late cured the severe 3-point Non-Declaration penalty into a minor 1-point Late Report deduction.</em>`
+      });
     }
+
+    // Check Field Travel Violations
     if (!isNoTravel(r.travelOrder)) {
-      const to = (r.travelOrder && String(r.travelOrder).trim()) || '';
-      let bad = false;
-      if (!COMMODITIES.some(k => r[k])) { g.commodity++; bad = true; }
-      if (daysTraveled(r.startDate, r.endDate) > 5) { g.overlong++; bad = true; }
-      if (bad && to) g.tos.add(to);
+      // Check Zero Commodity
+      if (!COMMODITIES.some(k => r[k])) {
+        g.commodity++;
+        if (to) g.tos.add(to);
+        evidenceList.push({
+          underwriter: uw,
+          month: month,
+          type: 'COMMODITY',
+          icon: '🌾',
+          title: 'Zero Viable Commodity',
+          points: 1,
+          badgeClass: 'badge-reprimand',
+          travelOrder: to,
+          startDate: r.startDate,
+          endDate: r.endDate || r.startDate,
+          venue: r.venue || '',
+          agency: r.agency || '',
+          purpose: r.purpose || '',
+          evidenceText: `Official field travel under <code>${escHtml(to)}</code> (${formatWeekRange(r.startDate, r.endDate)}) to <strong>${escHtml(r.venue || 'field')}</strong> was submitted with all 7 program checkboxes (Rice, Corn, HVC, LIV, FSH, NCI, TIP) left blank.`,
+          remediationText: `Every official field travel order must cover at least one legitimate agricultural insurance program. If conducting non-travel office duty or attending meetings without farmer coverage, declare <code>NO TRAVEL - OFFICE DUTY</code>.`
+        });
+      }
+
+      // Check Excessive Duration
+      const dur = daysTraveled(r.startDate, r.endDate);
+      if (dur > 5) {
+        g.overlong++;
+        if (to) g.tos.add(to);
+        evidenceList.push({
+          underwriter: uw,
+          month: month,
+          type: 'DURATION',
+          icon: '⏱️',
+          title: 'Excessive Duration (>5 Days)',
+          points: 1,
+          badgeClass: 'badge-reprimand',
+          travelOrder: to,
+          startDate: r.startDate,
+          endDate: r.endDate || r.startDate,
+          venue: r.venue || '',
+          duration: dur,
+          evidenceText: `Travel Order <code>${escHtml(to)}</code> covered <strong>${dur} consecutive calendar days</strong> (${formatWeekRange(r.startDate, r.endDate)}), exceeding the civil service 5-day field limit by ${dur - 5} day(s).`,
+          remediationText: `A single travel order cannot exceed 5 consecutive working days. Extended or multi-week field missions require separate, officially issued travel orders for each working week.`
+        });
+      }
+
+      // Track duplicate rows
       const dk = norm(uw) + '|' + norm(r.travelOrder) + '|' + norm(r.startDate) + '|' + norm(r.endDate) + '|' + norm(r.venue, true) + '|' + norm(r.agency, true) + '|' + norm(r.purpose, true) + '|' + norm(r.contact, true);
-      if (!dupeTally[dk]) dupeTally[dk] = { n: 0, uw: uw, month: month, to: norm(r.travelOrder) };
+      if (!dupeTally[dk]) dupeTally[dk] = { n: 0, uw: uw, month: month, to: norm(r.travelOrder), startDate: r.startDate, endDate: r.endDate, venue: r.venue };
       dupeTally[dk].n++;
     }
   });
+
+  // 2. Process Duplicate Findings
+  Object.values(dupeTally).forEach(d => {
+    if (d.n < 2) return;
+    const k = d.uw + '|' + d.month;
+    if (!groups[k]) groups[k] = { underwriter: d.uw, month: d.month, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, tos: new Set() };
+    groups[k].dupe += (d.n - 1);
+    if (d.to) groups[k].tos.add(d.to);
+
+    for (let i = 1; i < d.n; i++) {
+      evidenceList.push({
+        underwriter: d.uw,
+        month: d.month,
+        type: 'DUPLICATE',
+        icon: '📄',
+        title: 'Duplicate Entry',
+        points: 1,
+        badgeClass: 'badge-reprimand',
+        travelOrder: d.to,
+        startDate: d.startDate,
+        endDate: d.endDate,
+        venue: d.venue,
+        evidenceText: `Travel Order <code>${escHtml(d.to || '(blank)')}</code> (${formatWeekRange(d.startDate, d.endDate)}) to <strong>${escHtml(d.venue || '')}</strong> was submitted <strong>${d.n} times</strong> with identical details.`,
+        remediationText: `Double-logging inflates operational accomplishments and distorts monitoring reports. Review submitted records before re-entering rows.`
+      });
+    }
+  });
+
+  // 3. Process Undeclared Weeks per month
   const labels = sheetMonthOptions();
-  const skippedW1 = [];
-  labels.forEach(label => {
+  const nonDecMonthCounts = {};
+  labels.filter(label => selPeriodMonths.has(label)).forEach(label => {
     const parts = label.split(' ');
     const yr = +parts[1], mi = MON_IDX[parts[0]];
     let weeks = monthWeeks(yr, mi);
     const dow = new Date(yr, mi, 1).getDay();
     const stubSize = dow === 0 ? 0 : 6 - dow;
-    if (dow === 4 && stubSize >= 3 && stubSize < 5 && weeks.length) { weeks = weeks.slice(1); skippedW1.push(label); }
+    if (dow === 4 && stubSize >= 3 && stubSize < 5 && weeks.length) { weeks = weeks.slice(1); }
+    
     weeks.forEach(w => {
       underwriters.forEach(uw => {
         if (!w.days.some(d => present.has(String(uw).trim().toUpperCase() + '|' + d))) {
           const k = uw + '|' + label;
-          if (!groups[k]) { const p = k.split('|'); groups[k] = { underwriter: p[0], month: p[1], nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, tos: new Set() }; }
+          if (!groups[k]) groups[k] = { underwriter: uw, month: label, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, tos: new Set() };
           groups[k].nonDec++;
+
+          const mk = uw + '|' + label;
+          if (!nonDecMonthCounts[mk]) nonDecMonthCounts[mk] = 0;
+          nonDecMonthCounts[mk]++;
+          const countInMonth = nonDecMonthCounts[mk];
+          const isGrace = (countInMonth === 1);
+          const pts = isGrace ? 0 : 3;
+
+          evidenceList.push({
+            underwriter: uw,
+            month: label,
+            type: 'UNREPORTED',
+            icon: '🚗',
+            title: 'Unreported Travel / Undeclared Week',
+            points: pts,
+            isGrace: isGrace,
+            badgeClass: isGrace ? 'badge-admonition' : 'badge-memo',
+            travelOrder: '(none)',
+            weekLabel: w.label,
+            startDate: w.days[0],
+            endDate: w.days[w.days.length - 1],
+            evidenceText: `Zero accomplishment or attendance entries were declared for <strong>${w.label} (${formatWeekRange(w.days[0], w.days[w.days.length - 1])})</strong>.`,
+            remediationText: isGrace
+              ? `🟡 <strong>1st Undeclared Week (Grace Buffer):</strong> 0 penalty points charged. Submit your accomplishment or declare <code>NO TRAVEL - OFFICE DUTY</code> now before strict penalties apply.`
+              : `🚨 <strong>Strict 2-Week Cut-off (×3):</strong> Incurs a <strong>3-point penalty</strong>. <em>Harmonization Benefit: Submitting a late report cures this 3-point penalty into a minor 1-point Late Report.</em>`
+          });
         }
       });
     });
   });
-  Object.values(dupeTally).forEach(d => {
-    if (d.n < 2) return;
-    const k = d.uw + '|' + d.month;
-    if (!groups[k]) groups[k] = { underwriter: d.uw, month: d.month, nonDec: 0, commodity: 0, overlong: 0, dupe: 0, tos: new Set() };
-    groups[k].dupe++;
-    if (d.to) groups[k].tos.add(d.to);
-  });
-  const rows = Object.values(groups)
-    .filter(g => selPeriodMonths.has(g.month))
-    .filter(g => (g.nonDec + g.commodity + g.overlong + g.dupe + g.late) > 0)
-    .filter(g => compUw === 'ALL' || g.underwriter === compUw)
-    .sort((a, b) => a.underwriter.localeCompare(b.underwriter) || mval(a.month) - mval(b.month));
+
   const calcNonDecPoints = (nonDecWeeks) => nonDecWeeks >= 2 ? nonDecWeeks * 3 : 0;
   let html = head;
+
   const badMonths = Object.keys(compSources).filter(l => compSources[l] === 'unreachable');
-  if (badMonths.length) html += '<p>Note: ' + badMonths.map(m => escHtml(m)).join(', ') + ' sheet(s) unreachable &mdash; showing local data only.</p>';
-  const selSkips = skippedW1.filter(m => selPeriodMonths.has(m));
-  if (selSkips.length) html += '<p>Note: W1 stub excluded for Thursday-start month(s): ' + selSkips.map(m => escHtml(m)).join(', ') + '.</p>';
-  if (!rows.length) {
-    html += '<p>No infractions found for ' + escHtml(selPeriod.label) + '.</p>';
+  if (badMonths.length) html += '<p style="color:var(--muted);font-size:11px;">Note: ' + badMonths.map(m => escHtml(m)).join(', ') + ' sheet(s) unreachable &mdash; showing local data only.</p>';
+
+  if (compUw !== 'ALL') {
+    // -------------------------------------------------------------
+    // INDIVIDUAL UNDERWRITER VIEW (Tally Scorecard & Root Cause Audit Trail)
+    // -------------------------------------------------------------
+    const uw = compUw;
+    const uwEvidence = evidenceList.filter(e => e.underwriter === uw);
+
+    const lateCount = uwEvidence.filter(e => e.type === 'LATE').length;
+    const unrepCount = uwEvidence.filter(e => e.type === 'UNREPORTED').length;
+    const unrepPoints = uwEvidence.filter(e => e.type === 'UNREPORTED').reduce((s, e) => s + e.points, 0);
+    const graceCount = uwEvidence.filter(e => e.type === 'UNREPORTED' && e.isGrace).length;
+    const commCount = uwEvidence.filter(e => e.type === 'COMMODITY').length;
+    const durCount = uwEvidence.filter(e => e.type === 'DURATION').length;
+    const dupeCount = uwEvidence.filter(e => e.type === 'DUPLICATE').length;
+
+    const totalPoints = lateCount + unrepPoints + commCount + durCount + dupeCount;
+    const adminStatus = assessAdminStatus(totalPoints);
+
+    // Scorecard KPI Grid
+    html += '<div class="kpi-grid" style="margin-bottom:18px;">';
+    html += `<div class="kpi-card"><div class="kpi-label">⏰ Late Reports</div><div class="kpi-value" style="color:${lateCount > 0 ? '#b45309' : 'var(--ink)'};">${lateCount} <span style="font-size:12px;font-weight:normal;color:var(--muted);">(${lateCount} pt${lateCount===1?'':'s'})</span></div><div class="kpi-sub">Weekly delayed submissions</div></div>`;
+    html += `<div class="kpi-card"><div class="kpi-label">🚗 Unreported Weeks</div><div class="kpi-value" style="color:${unrepPoints > 0 ? '#dc2626' : (graceCount > 0 ? '#b45309' : 'var(--ink)')};">${unrepCount} <span style="font-size:12px;font-weight:normal;color:var(--muted);">(${unrepPoints} pts · ${graceCount} grace)</span></div><div class="kpi-sub">Missing weekly attendance</div></div>`;
+    html += `<div class="kpi-card"><div class="kpi-label">🌾 Zero Commodity</div><div class="kpi-value" style="color:${commCount > 0 ? '#c2410c' : 'var(--ink)'};">${commCount} <span style="font-size:12px;font-weight:normal;color:var(--muted);">(${commCount} pt${commCount===1?'':'s'})</span></div><div class="kpi-sub">Field trips without line coverage</div></div>`;
+    html += `<div class="kpi-card"><div class="kpi-label">⚠️ Total Infraction Points</div><div class="kpi-value" style="color:${totalPoints > 0 ? '#dc2626' : '#16a34a'};">${totalPoints} <span style="font-size:13px;font-weight:normal;">pts</span></div><div class="kpi-sub">${adminStatus}</div></div>`;
+    html += '</div>';
+
+    // Zero Infraction State
+    if (totalPoints === 0 && unrepCount === 0 && commCount === 0 && durCount === 0 && dupeCount === 0 && lateCount === 0) {
+      html += `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:var(--radius);padding:18px 20px;margin-bottom:20px;display:flex;align-items:center;gap:14px;">
+        <div style="font-size:32px;">🎉</div>
+        <div>
+          <strong style="color:#15803d;font-size:15px;">100% Compliant Record!</strong>
+          <div style="font-size:12px;color:var(--body);margin-top:2px;">
+            Zero violations recorded for <strong>${escHtml(uw)}</strong> during <strong>${escHtml(selPeriod.label)}</strong>. Outstanding discipline, timely weekly reporting, and complete operational compliance!
+          </div>
+        </div>
+      </div>`;
+    } else {
+      // Itemized Violation Audit Trail (Root Cause Evidence)
+      html += '<div style="background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.03);">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:10px;flex-wrap:wrap;gap:8px;">';
+      html += `<div><h4 style="margin:0;font-size:14px;color:var(--ink);">🔍 Itemized Violation Audit Trail &mdash; ${escHtml(uw)}</h4><div style="font-size:11px;color:var(--muted);margin-top:2px;">Review each flagged violation, its originating submission source, and remediation guidance to understand and prevent misgivings.</div></div>`;
+      html += `<span class="badge-status ${totalPoints > 0 ? 'badge-memo' : 'badge-ok'}" style="font-size:12px;padding:4px 10px;">${uwEvidence.length} Total Finding${uwEvidence.length === 1 ? '' : 's'} (${totalPoints} Points)</span>`;
+      html += '</div>';
+
+      html += '<div style="display:flex;flex-direction:column;gap:12px;">';
+      uwEvidence.forEach((ev, idx) => {
+        const borderLeftColor = ev.points >= 3 ? '#dc2626' : (ev.points > 0 ? '#ea580c' : '#f59e0b');
+        html += `<div style="background:var(--card-subtle);border:1px solid var(--line);border-left:4px solid ${borderLeftColor};border-radius:6px;padding:12px 14px;">`;
+        html += `<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:6px;">`;
+        html += `<div><strong style="font-size:13px;color:var(--ink);">${idx + 1}. ${ev.icon} ${ev.title}</strong> <span style="font-size:11px;color:var(--muted);margin-left:6px;">(${escHtml(ev.month)})</span></div>`;
+        html += `<div><span class="badge-status ${ev.badgeClass}">${ev.points > 0 ? '&minus;' + ev.points + ' Point' + (ev.points > 1 ? 's' : '') : '0 Points (Grace Buffer)'}</span></div>`;
+        html += `</div>`;
+        html += `<div style="font-size:12px;color:var(--body);line-height:1.6;">`;
+        html += `<div><strong>Originating Source:</strong> Travel Order <code>${escHtml(ev.travelOrder)}</code> ${ev.venue ? `&middot; Location: <strong>${escHtml(ev.venue)}</strong>` : ''}</div>`;
+        html += `<div style="margin-top:2px;"><strong>Discrepancy / Root Cause Evidence:</strong> ${ev.evidenceText}</div>`;
+        html += `<div style="margin-top:8px;padding:8px 12px;background:var(--card);border:1px solid var(--line);border-radius:4px;font-size:11.5px;color:var(--body);line-height:1.5;">`;
+        html += `💡 <strong>Understanding Your Misgiving &amp; Prevention:</strong> ${ev.remediationText}`;
+        html += `</div>`;
+        html += `</div>`;
+        html += `</div>`;
+      });
+      html += '</div>';
+      html += '</div>';
+    }
+
+    // Monthly breakdown table for this underwriter
+    const compRows = Object.values(groups)
+      .filter(g => g.underwriter === uw && selPeriodMonths.has(g.month))
+      .sort((a, b) => mval(a.month) - mval(b.month));
+
+    if (compRows.length) {
+      html += '<h4 style="font-size:14px;color:var(--ink);margin:16px 0 8px;border-left:4px solid var(--brand);padding-left:8px;">📅 Monthly Compliance Breakdown &mdash; ' + escHtml(uw) + '</h4>';
+      html += '<table><thead><tr>';
+      html += '<th>Month</th>';
+      html += '<th>Travel Order(s)</th>';
+      html += '<th>Unreported Travel (×3)</th>';
+      html += '<th>Zero Viable Commodity</th>';
+      html += '<th>Excessive Duration (&gt;5d)</th>';
+      html += '<th>Duplicate Entry</th>';
+      html += '<th>Late Report</th>';
+      html += '<th>Total Points</th>';
+      html += '</tr></thead><tbody>';
+
+      let mt = { nonDec: 0, comm: 0, over: 0, dupe: 0, late: 0, total: 0 };
+      compRows.forEach(g => {
+        const w = calcNonDecPoints(g.nonDec);
+        const tot = w + g.commodity + g.overlong + g.dupe + g.late;
+        mt.nonDec += w; mt.comm += g.commodity; mt.over += g.overlong; mt.dupe += g.dupe; mt.late += g.late; mt.total += tot;
+        html += `<tr>`;
+        html += `<td><strong>${escHtml(g.month)}</strong></td>`;
+        html += `<td class="left">${[...g.tos].map(o => `<code>${escHtml(o)}</code>`).join('; ') || '&mdash;'}</td>`;
+        html += `<td>${g.nonDec === 1 ? '0 <span style="font-size:10px;color:var(--muted);">(grace)</span>' : (w > 0 ? '<strong>' + w + '</strong>' : '0')}</td>`;
+        html += `<td>${g.commodity}</td>`;
+        html += `<td>${g.overlong}</td>`;
+        html += `<td>${g.dupe}</td>`;
+        html += `<td>${g.late}</td>`;
+        html += `<td><strong>${tot}</strong></td>`;
+        html += `</tr>`;
+      });
+
+      html += `<tr class="total-row">`;
+      html += `<td><strong>Quarter Total</strong></td>`;
+      html += `<td></td>`;
+      html += `<td>${mt.nonDec}</td>`;
+      html += `<td>${mt.comm}</td>`;
+      html += `<td>${mt.over}</td>`;
+      html += `<td>${mt.dupe}</td>`;
+      html += `<td>${mt.late}</td>`;
+      html += `<td><strong>${mt.total}</strong></td>`;
+      html += `</tr>`;
+      html += '</tbody></table>';
+    }
+
   } else {
-  const t = { nonDec: 0, commodity: 0, overlong: 0, dupe: 0, late: 0, total: 0 };
-  html += '<table><tr><th>Underwriter</th><th>Month</th><th>Travel Order</th><th>Unreported Travel / No-Travel (×3) <button class="th-info-btn" onclick="openInfractionHelp(\'unreported\')" title="Click for explanation" type="button">ℹ</button></th><th>Zero Viable Commodity <button class="th-info-btn" onclick="openInfractionHelp(\'commodity\')" title="Click for explanation" type="button">ℹ</button></th><th>Excessive Duration (&gt;5 Days) <button class="th-info-btn" onclick="openInfractionHelp(\'duration\')" title="Click for explanation" type="button">ℹ</button></th><th>Duplicate Entry <button class="th-info-btn" onclick="openInfractionHelp(\'duplicate\')" title="Click for explanation" type="button">ℹ</button></th><th>Late Report <button class="th-info-btn" onclick="openInfractionHelp(\'late\')" title="Click for explanation" type="button">ℹ</button></th><th>Total</th></tr>';
-  rows.forEach(g => {
-    const w = calcNonDecPoints(g.nonDec);
-    const tot = w + g.commodity + g.overlong + g.dupe + g.late;
-    t.nonDec += w; t.commodity += g.commodity; t.overlong += g.overlong; t.dupe += g.dupe; t.late += g.late; t.total += tot;
-    html += `<tr><td class="left"><strong>${escHtml(g.underwriter)}</strong></td><td>${escHtml(g.month)}</td><td class="left">${[...g.tos].map(o => escHtml(o)).join('; ') || '&mdash;'}</td><td>${g.nonDec === 1 ? '0 <span style="font-size:10px;color:var(--muted);">(grace)</span>' : (w > 0 ? '<strong>' + w + '</strong>' : '0')}</td><td>${g.commodity}</td><td>${g.overlong}</td><td>${g.dupe}</td><td>${g.late}</td><td><strong>${tot}</strong></td></tr>`;
-  });
-  html += `<tr class="total-row"><td class="left"><strong>Total</strong></td><td></td><td></td><td>${t.nonDec}</td><td>${t.commodity}</td><td>${t.overlong}</td><td>${t.dupe}</td><td>${t.late}</td><td><strong>${t.total}</strong></td></tr>`;
-  html += '</table>';
-  html += '<div style="margin-top:16px;padding:12px 16px;background:var(--brand-tint);border:1px solid #bbf7d0;border-radius:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;"><div><strong style="color:var(--brand-dark);">⭐ Underwriter SPMS Rating Assessment</strong><div style="font-size:12px;color:var(--body);margin-top:2px;">View official SPMS 5.00 ratings, cause of rating justifications, and operational context (days &amp; farmers) in the dedicated tab.</div></div><button type="button" onclick="switchTab(\'rating\')" style="font-size:12px;padding:6px 14px;border:none;border-radius:6px;background:var(--brand);color:#fff;font-weight:600;cursor:pointer;font-family:inherit;">Open Rating Assessment &rarr;</button></div>';
-  html += '<div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;border-top:1px dashed var(--line);padding-top:8px;"><strong>⚖️ Harmonized Quarterly Compliance Rules &amp; Infraction Point System:</strong><ul style="margin:4px 0 0 16px;padding:0;"><li><strong>Quarterly Assessment Period:</strong> Evaluated quarterly per 1st Quarter (January&ndash;March), 2nd Quarter (April&ndash;June), 3rd Quarter (July&ndash;September), and 4th Quarter (October&ndash;December).</li><li><strong>Subsequent Compliance (Late Submission):</strong> Submitting an overdue weekly report cures the 3-point <em>Unreported Travel</em> penalty and converts it to a standard <strong>1-point Late Report</strong> infraction. Submitting late is always preferred over non-reporting.</li><li><strong>Failure to Declare (Unreported):</strong> 1 undeclared week in a month is granted a grace buffer (0 pts). If no input is declared after 2 weeks, a strict penalty of <strong>3 points per undeclared week (&times;3)</strong> applies.</li><li><strong>Legitimate Non-Travel:</strong> Underwriters working at the office or on approved leave can clear attendance by declaring <code>NO TRAVEL - OFFICE DUTY</code> or <code>NO TRAVEL - ON LEAVE</code>.</li></ul></div>';
+    // -------------------------------------------------------------
+    // REGIONAL OVERVIEW VIEW (All Underwriters Infraction Matrix)
+    // -------------------------------------------------------------
+    const matrix = [];
+    let regTotalPoints = 0;
+    let regCompliantCount = 0;
+    let regInfractionCount = 0;
+
+    underwriters.forEach(uw => {
+      let nonDecWeeks = 0;
+      let nonDecPoints = 0;
+      let graceMonths = 0;
+      let commodity = 0;
+      let overlong = 0;
+      let dupe = 0;
+      let late = 0;
+
+      Object.values(groups).filter(g => g.underwriter === uw && selPeriodMonths.has(g.month)).forEach(g => {
+        const pts = calcNonDecPoints(g.nonDec);
+        nonDecWeeks += g.nonDec;
+        nonDecPoints += pts;
+        if (g.nonDec === 1) graceMonths++;
+        commodity += g.commodity;
+        overlong += g.overlong;
+        dupe += g.dupe;
+        late += g.late;
+      });
+
+      const total = nonDecPoints + commodity + overlong + dupe + late;
+      regTotalPoints += total;
+      if (total === 0) regCompliantCount++;
+      else regInfractionCount++;
+
+      matrix.push({
+        underwriter: uw,
+        nonDecWeeks: nonDecWeeks,
+        nonDecPoints: nonDecPoints,
+        graceMonths: graceMonths,
+        commodity: commodity,
+        overlong: overlong,
+        dupe: dupe,
+        late: late,
+        total: total,
+        status: assessAdminStatus(total)
+      });
+    });
+
+    // KPI Cards for All Underwriters
+    html += '<div class="kpi-grid" style="margin-bottom:18px;">';
+    html += `<div class="kpi-card"><div class="kpi-label">👥 Underwriters Audited</div><div class="kpi-value">${underwriters.length}</div><div class="kpi-sub">Total Region 10 underwriters</div></div>`;
+    html += `<div class="kpi-card"><div class="kpi-label">🟢 100% Compliant</div><div class="kpi-value" style="color:#16a34a;">${regCompliantCount}</div><div class="kpi-sub">${Math.round((regCompliantCount / (underwriters.length || 1)) * 100)}% with zero infractions</div></div>`;
+    html += `<div class="kpi-card"><div class="kpi-label">⚠️ Underwriters with Infractions</div><div class="kpi-value" style="color:${regInfractionCount > 0 ? '#dc2626' : 'var(--muted)'};">${regInfractionCount}</div><div class="kpi-sub">Actionable personnel</div></div>`;
+    html += `<div class="kpi-card"><div class="kpi-label">🚨 Total Regional Deductions</div><div class="kpi-value" style="color:${regTotalPoints > 0 ? '#dc2626' : '#16a34a'};">${regTotalPoints} <span style="font-size:13px;font-weight:normal;">pts</span></div><div class="kpi-sub">Quarterly infraction pool</div></div>`;
+    html += '</div>';
+
+    // Regional Matrix Table
+    html += '<div style="margin-bottom:12px;font-size:12px;color:var(--muted);">Click any underwriter\'s name to inspect their itemized root-cause evidence.</div>';
+    html += '<table><thead><tr>';
+    html += '<th style="text-align:left;">Underwriter</th>';
+    html += '<th style="text-align:center;">Unreported Travel (×3) <button class="th-info-btn" onclick="openInfractionHelp(\'unreported\')" title="Click for explanation" type="button">ℹ</button></th>';
+    html += '<th style="text-align:center;">Zero Commodity <button class="th-info-btn" onclick="openInfractionHelp(\'commodity\')" title="Click for explanation" type="button">ℹ</button></th>';
+    html += '<th style="text-align:center;">Duration &gt;5d <button class="th-info-btn" onclick="openInfractionHelp(\'duration\')" title="Click for explanation" type="button">ℹ</button></th>';
+    html += '<th style="text-align:center;">Duplicate Entry <button class="th-info-btn" onclick="openInfractionHelp(\'duplicate\')" title="Click for explanation" type="button">ℹ</button></th>';
+    html += '<th style="text-align:center;">Late Report <button class="th-info-btn" onclick="openInfractionHelp(\'late\')" title="Click for explanation" type="button">ℹ</button></th>';
+    html += '<th style="text-align:center;">Total Points</th>';
+    html += '<th style="text-align:center;">Assessment Status</th>';
+    html += '</tr></thead><tbody>';
+
+    matrix.sort((a, b) => a.underwriter.localeCompare(b.underwriter)).forEach(m => {
+      html += `<tr>`;
+      html += `<td class="left"><a href="javascript:void(0)" onclick="selectCompUnderwriter('${escHtml(m.underwriter)}')" style="font-weight:600;color:var(--brand-dark);text-decoration:underline;">${escHtml(m.underwriter)}</a></td>`;
+      html += `<td style="text-align:center;">${m.nonDecPoints > 0 ? '<strong>' + m.nonDecPoints + '</strong>' : (m.graceMonths > 0 ? '0 <span style="font-size:10px;color:var(--muted);">(grace)</span>' : '0')}</td>`;
+      html += `<td style="text-align:center;">${m.commodity}</td>`;
+      html += `<td style="text-align:center;">${m.overlong}</td>`;
+      html += `<td style="text-align:center;">${m.dupe}</td>`;
+      html += `<td style="text-align:center;">${m.late}</td>`;
+      html += `<td style="text-align:center;"><strong>${m.total}</strong></td>`;
+      html += `<td style="text-align:center;">${m.status}</td>`;
+      html += `</tr>`;
+    });
+
+    html += `<tr class="total-row">`;
+    html += `<td class="left"><strong>Regional Total (${underwriters.length} UWs)</strong></td>`;
+    html += `<td style="text-align:center;">${matrix.reduce((s, m) => s + m.nonDecPoints, 0)}</td>`;
+    html += `<td style="text-align:center;">${matrix.reduce((s, m) => s + m.commodity, 0)}</td>`;
+    html += `<td style="text-align:center;">${matrix.reduce((s, m) => s + m.overlong, 0)}</td>`;
+    html += `<td style="text-align:center;">${matrix.reduce((s, m) => s + m.dupe, 0)}</td>`;
+    html += `<td style="text-align:center;">${matrix.reduce((s, m) => s + m.late, 0)}</td>`;
+    html += `<td style="text-align:center;"><strong>${regTotalPoints}</strong></td>`;
+    html += `<td style="text-align:center;"><span style="font-size:11px;">${regCompliantCount} Compliant &middot; ${regInfractionCount} Actionable</span></td>`;
+    html += `</tr>`;
+    html += '</tbody></table>';
   }
+
+  // Link to Rating Assessment Tab
+  html += '<div style="margin-top:16px;padding:12px 16px;background:var(--brand-tint);border:1px solid #bbf7d0;border-radius:8px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">';
+  html += '<div><strong style="color:var(--brand-dark);">⭐ Underwriter SPMS Rating Assessment</strong><div style="font-size:12px;color:var(--body);margin-top:2px;">View official SPMS 5.00 numerical ratings, cause of rating justifications, and operational context (days &amp; farmers) in the dedicated tab.</div></div>';
+  html += '<button type="button" onclick="switchTab(\'rating\')" style="font-size:12px;padding:6px 14px;border:none;border-radius:6px;background:var(--brand);color:#fff;font-weight:600;cursor:pointer;font-family:inherit;">Open Rating Assessment &rarr;</button>';
+  html += '</div>';
+
+  // Harmonized Compliance Rules Note
+  html += '<div style="font-size:11px;color:var(--muted);margin-top:10px;line-height:1.6;border-top:1px dashed var(--line);padding-top:8px;"><strong>⚖️ Harmonized Quarterly Compliance Rules &amp; Infraction Point System:</strong><ul style="margin:4px 0 0 16px;padding:0;"><li><strong>Quarterly Assessment Period:</strong> Evaluated quarterly per 1st Quarter (January&ndash;March), 2nd Quarter (April&ndash;June), 3rd Quarter (July&ndash;September), and 4th Quarter (October&ndash;December).</li><li><strong>Subsequent Compliance (Late Submission):</strong> Submitting an overdue weekly report cures the 3-point <em>Unreported Travel</em> penalty and converts it to a standard <strong>1-point Late Report</strong> infraction. Submitting late is always preferred over non-reporting.</li><li><strong>Failure to Declare (Unreported):</strong> 1 undeclared week in a month is granted a grace buffer (0 pts). If no input is declared after 2 weeks, a strict penalty of <strong>3 points per undeclared week (&times;3)</strong> applies.</li><li><strong>Legitimate Non-Travel:</strong> Underwriters working at the office or on approved leave clear attendance by declaring <code>NO TRAVEL - OFFICE DUTY</code> or <code>NO TRAVEL - ON LEAVE</code>.</li></ul></div>';
+
   el.innerHTML = html;
 }
 
@@ -2319,6 +2661,9 @@ function switchTab(tabId) {
     renderTravelSummary();
   }
   if (tabId === 'compliance') {
+    if ((!compUw || compUw === 'ALL') && sessionUser && sessionUser.name && underwriters.includes(sessionUser.name)) {
+      compUw = sessionUser.name;
+    }
     renderCompliance();
   }
   if (tabId === 'rating') {
